@@ -259,6 +259,37 @@ class ProgressCallback(Callback):
         if learner.train_idx%50==0:
             print(sum(learner.train_losses))
 
-cbs = [ProgressCallback()]
-learner = Learner(model, optim, loss_func, train_loader, test_loader, cbs)
-learner.fit(1)
+from matplotlib import pyplot as plt
+class LogitDistributionCallback(Callback):
+    def __init__(self, sample_freq=1):
+        self.sample_freq = sample_freq  # How often to plot (every N epochs)
+    
+    def after_epoch(self, learner):
+        if learner.epoch % self.sample_freq == 0:
+            # Get a test batch
+            x_batch, y_batch = next(iter(test_loader))
+            # Get model predictions (logits)
+            with torch.no_grad():
+                y_predict = learner.model(x_batch)
+            # For a few samples, plot logits around the target
+            probs = torch.softmax(y_predict, dim=-1)
+            for i in range(probs.shape[0]):
+                plt.plot(range(probs.shape[1]), probs[i])
+                plt.bar(y_batch[i], 1, color='red', width=2)
+                plt.show()
+class ProgressCallback(Callback):
+    def __init__(self, update_freq=50):
+        self.update_freq = update_freq
+        self.fig, self.ax = None, None
+        
+    def before_fit(self, learner):
+        plt.ion()  # Turn on interactive mode
+        self.fig, self.ax = plt.subplots()
+        
+    def after_batch(self, learner):
+        if learner.train_idx % self.update_freq == 0:
+            self.ax.clear()
+            losses = [loss.item() for loss in learner.train_losses]
+            self.ax.plot(losses)
+            self.fig.canvas.draw()
+            self.fig.canvas.flush_events()
