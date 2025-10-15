@@ -3,7 +3,12 @@
 Only implements the ParisLawDegradation 
 """
 import numpy as np
+import torch
+from IPython.display import display, clear_output
+import matplotlib.pyplot as plt
 
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 class BaseDegradationProcess:
     def __init__(self, length, dim):
@@ -43,6 +48,7 @@ class ParisLawDegradation(BaseDegradationProcess):
 def digitize_np(data, min, max, num_bins):
     bins = np.linspace(min, max, num_bins+1)
     return np.digitize(data, bins)
+
 class TimeSeriesDataset(torch.utils.data.Dataset):
     def __init__(self, data, context_window=40):
         self.data = data
@@ -62,17 +68,8 @@ class TimeSeriesDataset(torch.utils.data.Dataset):
         y = self.data[episode_idx, pos+self.context_window]
         
         return torch.tensor(x, dtype=torch.long), torch.tensor(y, dtype=torch.long)
-from torch.utils.data import DataLoader
 
-dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
-# Split episodes into train/test (e.g., 80/20)
-n_train = int(0.8 * len(digitized_episodes))
-train_episodes = digitized_episodes[:n_train]
-test_episodes = digitized_episodes[n_train:]
-train_dataset = TimeSeriesDataset(train_episodes)
-test_dataset = TimeSeriesDataset(test_episodes)
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+
 class TokenPositionEmbedding(torch.nn.Module):
     def __init__(self, vocab_size, context_window, embedding_dim):
         super().__init__()
@@ -172,20 +169,7 @@ class DegradationTransformer(torch.nn.Module):
         last_x = x[:,-1, :] # 32*128
         vocab_x = self.lm_head(last_x) # 32*300
         return vocab_x
-model = DegradationTransformer(vocab_size=300, context_window=40, 
-                               embedding_dim=64, num_heads=4, num_blocks=3)
-output = model(x)
-print(output.shape)  # Should be (32, 300)
-optim = torch.optim.Adam(model.parameters(), lr=0.001)
-loss_func = torch.nn.CrossEntropyLoss()
-class Callback:
-    def __init__(self): pass
-    def before_fit(self, learner): pass
-    def before_batch(self, learner): pass
-    def before_epoch(self, learner): pass
-    def after_batch(self, learner): pass
-    def after_epoch(self, learner): pass
-    def after_fit(self, learner): pass
+
 # export learner.py
 class Learner():
     def __init__(self, model, optim, loss_func, train_loader, test_loader, cbs):
@@ -233,18 +217,21 @@ class Learner():
             for i, (x_batch, y_batch) in enumerate(self.train_loader):
                 self.train_idx = i
                 for cb in self.cbs:
-                    cb.before_batch(self)
+                    cb.before_train_batch(self)
                 self.last_train_loss = self.train_one_batch(x_batch, y_batch)
                 self.train_losses.append(self.last_train_loss)
                 for cb in self.cbs:
-                    cb.after_batch(self)
+                    cb.after_train_batch(self)
                
             # test loop
             for i, (x_batch, y_batch) in enumerate(self.test_loader):
                 self.test_idx = i
-                print("test_i=  ", i)
+                for cb in self.cbs:
+                    cb.before_test_batch(self)
                 self.last_test_loss = self.test_one_batch(x_batch, y_batch)
                 self.test_losses.append(self.last_test_loss)
+                for cb in self.cbs:
+                    cb.after_test_batch(self)
 
 
             for cb in self.cbs:
@@ -253,13 +240,17 @@ class Learner():
         for cb in self.cbs:
                 cb.after_fit(self)
 
-class ProgressCallback(Callback):
-    
-    def after_batch(self, learner):
-        if learner.train_idx%50==0:
-            print(sum(learner.train_losses))
+class Callback:
+    def __init__(self): pass
+    def before_fit(self, learner): pass
+    def before_train_batch(self, learner): pass
+    def before_test_batch(self, learner): pass
+    def before_epoch(self, learner): pass
+    def after_train_batch(self, learner): pass
+    def after_test_batch(self, learner): pass
+    def after_epoch(self, learner): pass
+    def after_fit(self, learner): pass
 
-from matplotlib import pyplot as plt
 class LogitDistributionCallback(Callback):
     def __init__(self, sample_freq=1):
         self.sample_freq = sample_freq  # How often to plot (every N epochs)
@@ -267,7 +258,7 @@ class LogitDistributionCallback(Callback):
     def after_epoch(self, learner):
         if learner.epoch % self.sample_freq == 0:
             # Get a test batch
-            x_batch, y_batch = next(iter(test_loader))
+            x_batch, y_batch = next(iter(learner.test_loader))
             # Get model predictions (logits)
             with torch.no_grad():
                 y_predict = learner.model(x_batch)
@@ -277,19 +268,72 @@ class LogitDistributionCallback(Callback):
                 plt.plot(range(probs.shape[1]), probs[i])
                 plt.bar(y_batch[i], 1, color='red', width=2)
                 plt.show()
+
+
+
 class ProgressCallback(Callback):
     def __init__(self, update_freq=50):
         self.update_freq = update_freq
-        self.fig, self.ax = None, None
+        self.fig = None
+        self.display_id = None
         
     def before_fit(self, learner):
-        plt.ion()  # Turn on interactive mode
-        self.fig, self.ax = plt.subplots()
+        # Create a FigureWidget with two subplots
+        self.fig = go.FigureWidget(
+            make_subplots(
+                rows=2, cols=1,
+                subplot_titles=("Training Loss", "Test Loss"),
+                vertical_spacing=0.15,
+                shared_xaxes=True
+            )
+        )
         
-    def after_batch(self, learner):
+        # Add empty traces for training and test losses
+        self.fig.add_trace(
+            go.Scatter(x=[], y=[], mode='lines', name='Training Loss', line=dict(color='blue')),
+            row=1, col=1
+        )
+        self.fig.add_trace(
+            go.Scatter(x=[], y=[], mode='lines', name='Test Loss', line=dict(color='orange')),
+            row=2, col=1
+        )
+        
+        # Update layout
+        self.fig.update_layout(
+            height=600,
+            width=800,
+            showlegend=True,
+            margin=dict(t=50, b=50, l=50, r=50)
+        )
+        self.fig.update_xaxes(title_text="Batch", row=2, col=1)
+        self.fig.update_yaxes(title_text="Loss", row=1, col=1)
+        self.fig.update_yaxes(title_text="Loss", row=2, col=1)
+        
+        # Display the figure widget and store the display handle
+        self.display_id = display(self.fig, display_id=True)
+        
+    def after_train_batch(self, learner):
         if learner.train_idx % self.update_freq == 0:
-            self.ax.clear()
-            losses = [loss.item() for loss in learner.train_losses]
-            self.ax.plot(losses)
-            self.fig.canvas.draw()
-            self.fig.canvas.flush_events()
+            # Update training loss trace
+            train_losses = [loss.item() for loss in learner.train_losses]
+            with self.fig.batch_update():
+                self.fig.data[0].x = np.arange(len(train_losses))
+                self.fig.data[0].y = train_losses
+            
+            # Update the display
+            self.display_id.update(self.fig)
+            
+    def after_test_batch(self, learner):
+        if learner.test_idx % self.update_freq == 0:
+            # Update test loss trace
+            test_losses = [loss.item() for loss in learner.test_losses]
+            with self.fig.batch_update():
+                self.fig.data[1].x = np.arange(len(test_losses))
+                self.fig.data[1].y = test_losses
+            
+            # Update the display
+            self.display_id.update(self.fig)
+            
+    def after_fit(self, learner):
+        # Clear the figure widget to prevent memory leaks
+        self.fig = None
