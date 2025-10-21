@@ -47,9 +47,71 @@ class ParisLawDegradation(BaseDegradationProcess):
         a = np.atleast_1d(np.asarray(a))
         return self.C * (self.delta_K(a) ** self.m)
 
+
+class RandomShockDegradation(BaseDegradationProcess):
+    """Gaussian time between shocks (e.g., mean=10 steps, std=3?)
+        Gaussian shock magnitude
+        adds also baseline (Paris or linear)
+    """
+
+    def __init__(self, length, dim, mu_t, sigma_t, mu_shock, sigma_shock, baseline=True):
+        super().__init__(length, dim)
+        self.mu_t = float(mu_t)
+        self.sigma_t = float(sigma_t)
+        self.mu_shock = float(mu_shock)
+        self.sigma_shock = float(sigma_shock)
+        self.baseline = baseline
+        if baseline:
+            self.c = 0.02
+        self.tao = int(np.random.randn()*self.sigma_t+self.mu_t)
+
+
+
+    def xdot(self, a):
+        a = np.atleast_1d(np.asarray(a))
+        # assume x(t+1) = xt + bt + st
+        bt=0
+        if self.baseline:
+            bt = self.c
+        self.tao = self.tao - 1 if self.tao>0 else int(np.random.randn()*self.sigma_t+self.mu_t)
+        st = 0 if self.tao>0 else np.random.randn()*self.sigma_shock+self.mu_shock
+        return bt + st
+
+class LinearDegradation(BaseDegradationProcess):
+    """Linear degradation
+    """
+
+    def __init__(self, length, dim, c, mu_e=0, sigma_e=0):
+        super().__init__(length, dim)
+        self.c = float(c)
+        self.mu_e = float(mu_e)
+        self.sigma_e = float(sigma_e)
+        self.noise = (sigma_e > 0)  # Auto-detect if noise should be used
+
+    def xdot(self, a):
+        a = np.atleast_1d(np.asarray(a))
+        e = np.random.randn() * self.sigma_e + self.mu_e if self.noise else 0
+        return self.c + e
+    
+
 def digitize_np(data, min, max, num_bins):
-    bins = np.linspace(min, max, num_bins+1)
+    bins = np.linspace(min, max, num_bins-1)
     return np.digitize(data, bins)
+
+def adaptive_digitize(episodes, q_bins=100, sub_bins=10):
+    # Get 50 quantiles
+    quantiles = np.quantile(episodes, q=np.linspace(0, 1, q_bins+1))
+
+    # Subdivide each quantile range into 6 bins
+    adaptive_bins = []
+    for i in range(len(quantiles) - 1):
+        bins_range = np.linspace(quantiles[i], quantiles[i+1], sub_bins+1)[:-1]  # 6 sub-bins, exclude last
+        adaptive_bins.extend(bins_range)
+    #adaptive_bins.append(quantiles[-1])  # Add final boundary
+
+    adaptive_bins = np.array(adaptive_bins)
+    return np.digitize(episodes, adaptive_bins)-1
+
 
 class TimeSeriesDataset(torch.utils.data.Dataset):
     def __init__(self, data, context_window=40):
