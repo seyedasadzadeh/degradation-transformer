@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+
+
 class BaseDegradationProcess:
     def __init__(self, length, dim):
         self.length = int(length)
@@ -172,8 +174,14 @@ class DegradationTransformer(torch.nn.Module):
 
 # export learner.py
 class Learner():
-    def __init__(self, model, optim, loss_func, train_loader, test_loader, cbs):
-        self.model = model
+    def __init__(self, model, optim, loss_func, train_loader, test_loader, cbs, device=None):
+        # device: torch.device or string like 'cpu'/'cuda'. If None, auto-detect.
+        if device is not None:
+            self.device = torch.device(device)
+        else:
+            self.device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+        # move model to device
+        self.model = model.to(self.device)
         self.optim = optim
         self.loss_func = loss_func
         self.train_loader = train_loader
@@ -184,6 +192,9 @@ class Learner():
 
     def train_one_batch(self, x_batch, y_batch):
         self.optim.zero_grad()
+        # Move batch to device
+        x_batch = x_batch.to(self.device)
+        y_batch = y_batch.to(self.device)
         # Forward pass
         y_predict = self.model(x_batch)
         # Compute loss
@@ -197,11 +208,14 @@ class Learner():
 
     def test_one_batch(self, x_batch, y_batch):
         with torch.no_grad():        
+            # Move batch to device
+            x_batch = x_batch.to(self.device)
+            y_batch = y_batch.to(self.device)
             # Forward pass
             y_test_predict = self.model(x_batch)
             # Compute loss
             loss = self.loss_func(y_test_predict, y_batch)
-            
+
             return loss
 
     def fit(self, num_epochs):
@@ -259,81 +273,64 @@ class LogitDistributionCallback(Callback):
         if learner.epoch % self.sample_freq == 0:
             # Get a test batch
             x_batch, y_batch = next(iter(learner.test_loader))
-            # Get model predictions (logits)
+            # Move batch to device and get model predictions (logits)
+            x_batch = x_batch.to(learner.device)
+            y_batch = y_batch.to(learner.device)
             with torch.no_grad():
                 y_predict = learner.model(x_batch)
             # For a few samples, plot logits around the target
             probs = torch.softmax(y_predict, dim=-1)
-            for i in range(probs.shape[0]):
-                plt.plot(range(probs.shape[1]), probs[i])
-                plt.bar(y_batch[i], 1, color='red', width=2)
+            probs_cpu = probs.cpu().numpy()
+            y_cpu = y_batch.cpu().numpy()
+            for i in range(probs_cpu.shape[0]):
+                plt.plot(range(probs_cpu.shape[1]), probs_cpu[i])
+                plt.bar(int(y_cpu[i]), 1, color='red', width=2)
                 plt.show()
-
-
 
 class ProgressCallback(Callback):
     def __init__(self, update_freq=50):
         self.update_freq = update_freq
-        self.fig = None
-        self.display_id = None
-        
+        self.train_losses = []
+        self.test_losses = []
+
     def before_fit(self, learner):
-        # Create a FigureWidget with two subplots
-        self.fig = go.FigureWidget(
-            make_subplots(
-                rows=2, cols=1,
-                subplot_titles=("Training Loss", "Test Loss"),
-                vertical_spacing=0.15,
-                shared_xaxes=True
-            )
-        )
-        
-        # Add empty traces for training and test losses
-        self.fig.add_trace(
-            go.Scatter(x=[], y=[], mode='lines', name='Training Loss', line=dict(color='blue')),
-            row=1, col=1
-        )
-        self.fig.add_trace(
-            go.Scatter(x=[], y=[], mode='lines', name='Test Loss', line=dict(color='orange')),
-            row=2, col=1
-        )
-        
-        # Update layout
-        self.fig.update_layout(
-            height=600,
-            width=800,
-            showlegend=True,
-            margin=dict(t=50, b=50, l=50, r=50)
-        )
-        self.fig.update_xaxes(title_text="Batch", row=2, col=1)
-        self.fig.update_yaxes(title_text="Loss", row=1, col=1)
-        self.fig.update_yaxes(title_text="Loss", row=2, col=1)
-        
-        # Display the figure widget and store the display handle
-        self.display_id = display(self.fig, display_id=True)
-        
+        clear_output(wait=True)
+        self.train_losses = []
+        self.test_losses = []
+
     def after_train_batch(self, learner):
         if learner.train_idx % self.update_freq == 0:
-            # Update training loss trace
-            train_losses = [loss.item() for loss in learner.train_losses]
-            with self.fig.batch_update():
-                self.fig.data[0].x = np.arange(len(train_losses))
-                self.fig.data[0].y = train_losses
-            
-            # Update the display
-            self.display_id.update(self.fig)
-            
+            self.train_losses = [loss.item() for loss in learner.train_losses]
+            self._update_plot()
+
     def after_test_batch(self, learner):
         if learner.test_idx % self.update_freq == 0:
-            # Update test loss trace
-            test_losses = [loss.item() for loss in learner.test_losses]
-            with self.fig.batch_update():
-                self.fig.data[1].x = np.arange(len(test_losses))
-                self.fig.data[1].y = test_losses
-            
-            # Update the display
-            self.display_id.update(self.fig)
-            
+            self.test_losses = [loss.item() for loss in learner.test_losses]
+            self._update_plot()
+
+    def _update_plot(self):
+        clear_output(wait=True)
+        fig = make_subplots(
+            rows=2, cols=1,
+            subplot_titles=("Training Loss", "Test Loss"),
+            vertical_spacing=0.15,
+            shared_xaxes=True
+        )
+        fig.add_trace(
+            go.Scatter(x=np.arange(len(self.train_losses)), y=self.train_losses, mode='lines', name='Training Loss', line=dict(color='blue')),
+            row=1, col=1
+        )
+        fig.add_trace(
+            go.Scatter(x=np.arange(len(self.test_losses)), y=self.test_losses, mode='lines', name='Test Loss', line=dict(color='orange')),
+            row=2, col=1
+        )
+        fig.update_layout(height=600, width=800, showlegend=True, margin=dict(t=50, b=50, l=50, r=50))
+        fig.update_xaxes(title_text="Batch", row=2, col=1)
+        fig.update_yaxes(title_text="Loss", row=1, col=1)
+        fig.update_yaxes(title_text="Loss", row=2, col=1)
+        fig.show()
+
     def after_fit(self, learner):
-        # Clear the figure widget to prevent memory leaks
-        self.fig = None
+        clear_output(wait=True)
+        self.train_losses = []
+        self.test_losses = []
