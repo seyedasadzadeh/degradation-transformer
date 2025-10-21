@@ -19,9 +19,9 @@ class BaseDegradationProcess:
 
     def generate_episode(self, x0):
         x0 = np.atleast_1d(np.asarray(x0))
-        episode = np.zeros((x0.shape[0], self.length + 1))
+        episode = np.zeros((x0.shape[0], self.length))
         episode[:, 0] = x0
-        for i in range(self.length):
+        for i in range(self.length-1):
             episode[:, i + 1] = episode[:, i] + self.xdot(episode[:, i])
         return episode
 
