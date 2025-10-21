@@ -316,6 +316,28 @@ class Learner():
         for cb in self.cbs:
                 cb.after_fit(self)
 
+    def predict(self, x, num_periods=60):
+        """
+        assume x is a 1d series or a 2d which first dimention is batch size
+        start from the last context_window observation in x and predict next token, add it to x and iterate
+        """
+        self.model.eval()
+        # add batch dimension if needed
+        if len(x.shape)==1:
+            x = torch.tensor(x, dtype=torch.long).unsqueeze(0).to(self.device) # shape 1, seq_len
+        else:
+            x = torch.tensor(x, dtype=torch.long).to(self.device)  # shape batch_size, seq_len
+
+        with torch.no_grad():
+            for _ in range(num_periods):
+                x_input = x[:, -self.train_loader.dataset.context_window:, ]  # get last context_window tokens
+                y_predict = self.model(x_input)
+                predicted_token = torch.argmax(y_predict, dim=-1).item()
+                # append predicted token to x
+                x = torch.cat([x, torch.tensor([[predicted_token]], device=self.device)], dim=1)
+        predicted_token = x[:, -num_periods:].cpu().numpy()
+        return predicted_token
+
 class Callback:
     def __init__(self): pass
     def before_fit(self, learner): pass
