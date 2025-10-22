@@ -112,14 +112,43 @@ def adaptive_digitize(episodes, q_bins=100, sub_bins=10):
     adaptive_bins = np.array(adaptive_bins)
     return np.digitize(episodes, adaptive_bins)-1
 
+class UniformDigitizer():
+    def __init__(self, vocab_size, min_val=0, max_val=2.0):
+        self.vocab_size = vocab_size
+        self.min_val = min_val
+        self.max_val = max_val
+    
+    def digitize_np(self, data):
+        bins = np.linspace(self.min_val, self.max_val, self.vocab_size-1)
+        return np.digitize(data, bins)
+    def de_digitize_np(self, token):
+        bin_width = (self.max_val - self.min_val) / self.vocab_size
+        return self.min_val + token * bin_width + bin_width / 2  # return center of the bin
+    
+class WindowNormalizer:
+    def __init__(self, epsilon=1e-8):
+        self.epsilon = epsilon
+    
+    def normalize(self, window, params=None):
+        window = np.asarray(window)  # Ensure it's a numpy array
+        if not params:
+            params = {'min': window.min(), 'max': window.max()}
+        normalized = (window - params['min']) / (params['max'] - params['min'] + self.epsilon)
+        
+        return normalized, params
+    
+    def denormalize(self, normalized_value, params):
+        return normalized_value * (params['max'] - params['min'] + self.epsilon) + params['min']
 
 class TimeSeriesDataset(torch.utils.data.Dataset):
-    def __init__(self, data, context_window=40):
+    def __init__(self, data, context_window, vocab_size):
         self.data = data
         self.context_window = context_window
+        self.vocab_size = vocab_size
         self.n_episodes, self.episode_length = data.shape
         self.samples_per_episode = self.episode_length - context_window
-        
+        self.normalizer = WindowNormalizer()
+        self.digitizer = UniformDigitizer(vocab_size)
     def __len__(self):
         return self.n_episodes * self.samples_per_episode
     
@@ -130,9 +159,17 @@ class TimeSeriesDataset(torch.utils.data.Dataset):
         
         x = self.data[episode_idx, pos:pos+self.context_window]
         y = self.data[episode_idx, pos+self.context_window]
-        
-        return torch.tensor(x, dtype=torch.long), torch.tensor(y, dtype=torch.long)
+        # normalize
+        x_norm, par = self.normalizer.normalize(x)
+        y_norm,_ = self.normalizer.normalize(y, par)
 
+        # digitize
+        x_dig = self.digitizer.digitize_np(x_norm)
+        y_dig = self.digitizer.digitize_np(y_norm)
+
+
+        return torch.tensor(x_dig, dtype=torch.long), torch.tensor(y_dig, dtype=torch.long)
+    
 
 class TokenPositionEmbedding(torch.nn.Module):
     def __init__(self, vocab_size, context_window, embedding_dim):
@@ -220,6 +257,8 @@ class TransformerBlock(torch.nn.Module):
 class DegradationTransformer(torch.nn.Module):
     def __init__(self, vocab_size, context_window, embedding_dim, num_heads, num_blocks):
         super().__init__()
+        self.vocab_size = vocab_size
+        self.context_window = context_window
         self.tpembed = TokenPositionEmbedding(vocab_size, context_window, embedding_dim)
         self.tbls_list = torch.nn.ModuleList([TransformerBlock(embedding_dim, num_heads) for _ in range(num_blocks)])
         self.lm_head = torch.nn.Linear(embedding_dim, vocab_size, bias=False)
@@ -251,6 +290,9 @@ class Learner():
         self.cbs = cbs
         self.train_losses = []
         self.test_losses = []
+
+        self.normalizer = WindowNormalizer()
+        self.digitizer = UniformDigitizer(model.vocab_size)
 
     def train_one_batch(self, x_batch, y_batch):
         self.optim.zero_grad()
@@ -318,25 +360,33 @@ class Learner():
 
     def predict(self, x, num_periods=60):
         """
+        this is inference with the trained model:
         assume x is a 1d series or a 2d which first dimention is batch size
-        start from the last context_window observation in x and predict next token, add it to x and iterate
+        start from the last context_window observations in x and predict next token, add it to x and iterate
         """
         self.model.eval()
         # add batch dimension if needed
         if len(x.shape)==1:
-            x = torch.tensor(x, dtype=torch.long).unsqueeze(0).to(self.device) # shape 1, seq_len
-        else:
-            x = torch.tensor(x, dtype=torch.long).to(self.device)  # shape batch_size, seq_len
+            x = x.reshape(1, -1)
 
         with torch.no_grad():
             for _ in range(num_periods):
-                x_input = x[:, -self.train_loader.dataset.context_window:, ]  # get last context_window tokens
-                y_predict = self.model(x_input)
-                predicted_token = torch.argmax(y_predict, dim=-1).item()
-                # append predicted token to x
-                x = torch.cat([x, torch.tensor([[predicted_token]], device=self.device)], dim=1)
-        predicted_token = x[:, -num_periods:].cpu().numpy()
-        return predicted_token
+                x_input = x[:, -self.model.context_window:, ]  # get last context_window tokens
+                # normalize
+                x_norm, par = self.normalizer.normalize(x_input)
+                # digitize
+                x_dig = self.digitizer.digitize_np(x_norm)
+                x_dig = torch.tensor(x_dig, device=self.device)
+                # inference
+                y_out = self.model(x_dig)
+                yhat_token = (torch.argmax(y_out, dim=-1)).cpu()
+                # de-digitize
+                yhat_norm = self.digitizer.de_digitize_np(yhat_token)
+                # denormalize 
+                predicted_y= self.normalizer.denormalize(yhat_norm, par)
+                # append predicted value to numpy array x
+                x = np.concatenate([x, predicted_y[..., None]], axis=1)
+        return x
 
 class Callback:
     def __init__(self): pass
