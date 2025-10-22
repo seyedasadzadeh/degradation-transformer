@@ -360,33 +360,41 @@ class Learner():
 
     def predict(self, x, num_periods=60):
         """
-        this is inference with the trained model:
-        assume x is a 1d series or a 2d which first dimention is batch size
-        start from the last context_window observations in x and predict next token, add it to x and iterate
+        Inference with the trained model (PyTorch version)
+        x: numpy array, 1D or 2D
         """
         self.model.eval()
-        # add batch dimension if needed
-        if len(x.shape)==1:
-            x = x.reshape(1, -1)
-
+        
+        # Convert to torch and add batch dim if needed
+        x = torch.tensor(x, dtype=torch.float32, device=self.device)
+        if len(x.shape) == 1:
+            x = x.unsqueeze(0)  # Add batch dimension
+        
         with torch.no_grad():
             for _ in range(num_periods):
-                x_input = x[:, -self.model.context_window:, ]  # get last context_window tokens
-                # normalize
-                x_norm, par = self.normalizer.normalize(x_input)
-                # digitize
+                x_input = x[:, -self.model.context_window:]
+                
+                # Normalize (convert to numpy for normalizer)
+                x_np = x_input.cpu().numpy()
+                x_norm, par = self.normalizer.normalize(x_np)
+                
+                # Digitize and back to torch
                 x_dig = self.digitizer.digitize_np(x_norm)
-                x_dig = torch.tensor(x_dig, device=self.device)
-                # inference
+                x_dig = torch.tensor(x_dig, dtype=torch.long, device=self.device)
+                
+                # Inference
                 y_out = self.model(x_dig)
-                yhat_token = (torch.argmax(y_out, dim=-1)).cpu()
-                # de-digitize
-                yhat_norm = self.digitizer.de_digitize_np(yhat_token)
-                # denormalize 
-                predicted_y= self.normalizer.denormalize(yhat_norm, par)
-                # append predicted value to numpy array x
-                x = np.concatenate([x, predicted_y[..., None]], axis=1)
-        return x
+                yhat_token = torch.argmax(y_out, dim=-1)
+                
+                # De-digitize and denormalize
+                yhat_norm = self.digitizer.de_digitize_np(yhat_token.cpu().numpy())
+                predicted_y = self.normalizer.denormalize(yhat_norm, par)
+                
+                # Append to x (as torch tensor)
+                predicted_y_torch = torch.tensor(predicted_y, dtype=torch.float32, device=self.device).unsqueeze(-1)
+                x = torch.cat([x, predicted_y_torch], dim=1)
+        
+        return x.cpu().numpy()
 
 class Callback:
     def __init__(self): pass
