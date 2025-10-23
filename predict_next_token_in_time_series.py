@@ -132,7 +132,7 @@ class WindowNormalizer:
     def normalize(self, window, params=None):
         window = np.asarray(window)  # Ensure it's a numpy array
         if not params:
-            params = {'min': window.min(), 'max': window.max()}
+            params = {'min': window.min(-1)[...,None], 'max': window.max(-1)[...,None]}
         normalized = (window - params['min']) / (params['max'] - params['min'] + self.epsilon)
         
         return normalized, params
@@ -168,7 +168,7 @@ class TimeSeriesDataset(torch.utils.data.Dataset):
         y_dig = self.digitizer.digitize_np(y_norm)
 
 
-        return torch.tensor(x_dig, dtype=torch.long), torch.tensor(y_dig, dtype=torch.long)
+        return torch.tensor(x_dig, dtype=torch.long), torch.tensor(y_dig, dtype=torch.long).squeeze()
     
 
 class TokenPositionEmbedding(torch.nn.Module):
@@ -303,7 +303,6 @@ class Learner():
         y_predict = self.model(x_batch)
         # Compute loss
         loss = self.loss_func(y_predict, y_batch)
-        
         # Backward pass
         loss.backward()
         # Update weights
@@ -381,17 +380,15 @@ class Learner():
                 # Digitize and back to torch
                 x_dig = self.digitizer.digitize_np(x_norm)
                 x_dig = torch.tensor(x_dig, dtype=torch.long, device=self.device)
-                
                 # Inference
                 y_out = self.model(x_dig)
+                # Get predicted token
                 yhat_token = torch.argmax(y_out, dim=-1)
-                
                 # De-digitize and denormalize
                 yhat_norm = self.digitizer.de_digitize_np(yhat_token.cpu().numpy())
                 predicted_y = self.normalizer.denormalize(yhat_norm, par)
-                
                 # Append to x (as torch tensor)
-                predicted_y_torch = torch.tensor(predicted_y, dtype=torch.float32, device=self.device).unsqueeze(-1)
+                predicted_y_torch = torch.tensor(predicted_y, dtype=torch.float32, device=self.device)
                 x = torch.cat([x, predicted_y_torch], dim=1)
         
         return x.cpu().numpy()
