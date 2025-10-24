@@ -1,5 +1,5 @@
 
-from predict_next_token_in_time_series import WindowNormalizer
+from src.utils import WindowNormalizer
 import numpy as np
 
 def test_normalizer_2d():
