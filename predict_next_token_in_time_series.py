@@ -11,6 +11,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
+# ----------------------------------------------------------------------------------------------
+# 
+#    
+#------------------------------------------- degradation models --------------------------------
+#
+#
+# ----------------------------------------------------------------------------------------------
 
 class BaseDegradationProcess:
     def __init__(self, length, dim):
@@ -78,7 +85,10 @@ class RandomShockDegradation(BaseDegradationProcess):
         return bt + st
 
 class LinearDegradation(BaseDegradationProcess):
-    """Linear degradation
+    """
+    Linear degradation with noisy increaments
+    xdot = c + e
+    e ~ N(mu_e, sigma_e)
     """
 
     def __init__(self, length, dim, c, mu_e=0, sigma_e=0):
@@ -92,7 +102,15 @@ class LinearDegradation(BaseDegradationProcess):
         a = np.atleast_1d(np.asarray(a))
         e = np.random.randn() * self.sigma_e + self.mu_e if self.noise else 0
         return self.c + e
-    
+
+# ----------------------------------------------------------------------------------------------
+# 
+#    
+#------------------------------------------- utils ---------------------------------------------
+#
+#
+# ----------------------------------------------------------------------------------------------
+
 
 def digitize_np(data, min, max, num_bins):
     bins = np.linspace(min, max, num_bins-1)
@@ -365,7 +383,11 @@ class Learner():
         self.model.eval()
         
         # Convert to torch and add batch dim if needed
-        x = torch.tensor(x, dtype=torch.float32, device=self.device)
+        if isinstance(x, np.ndarray):
+            x = torch.tensor(x, dtype=torch.float32, device=self.device)
+        else:
+            x = x.to(self.device)
+
         if len(x.shape) == 1:
             x = x.unsqueeze(0)  # Add batch dimension
         
@@ -383,7 +405,8 @@ class Learner():
                 # Inference
                 y_out = self.model(x_dig)
                 # Get predicted token
-                yhat_token = torch.argmax(y_out, dim=-1)
+                yhat_token = torch.argmax(y_out, dim=-1).unsqueeze(-1)
+
                 # De-digitize and denormalize
                 yhat_norm = self.digitizer.de_digitize_np(yhat_token.cpu().numpy())
                 predicted_y = self.normalizer.denormalize(yhat_norm, par)
