@@ -1,0 +1,18 @@
+name: Run Tests in Docker
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+  steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    - name: Build and run Tests in Docker
+      run: |
+        docker build -t my_test_image .
+        docker run --rm my_test_image
