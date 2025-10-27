@@ -4,7 +4,7 @@ Only implements the ParisLawDegradation
 """
 import numpy as np
 import torch
-#from IPython.display import display, clear_output
+from IPython.display import display, clear_output
 import matplotlib.pyplot as plt
 
 import plotly.graph_objects as go
@@ -415,6 +415,9 @@ class Learner():
                 x = torch.cat([x, predicted_y_torch], dim=1)
         
         return x.cpu().numpy()
+    def save_model(self, filename="model.safetensors"):
+        from safetensors.torch import save_model
+        save_model(self.model, filename)
 
 class Callback:
     def __init__(self): pass
