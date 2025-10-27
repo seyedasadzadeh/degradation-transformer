@@ -4,9 +4,7 @@ Only implements the ParisLawDegradation
 """
 import numpy as np
 import torch
-from IPython.display import display, clear_output
 import matplotlib.pyplot as plt
-
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -453,6 +451,7 @@ class LogitDistributionCallback(Callback):
                 plt.show()
 
 class ProgressCallback(Callback):
+    from IPython.display import display, clear_output
     def __init__(self, update_freq=50):
         self.update_freq = update_freq
         self.train_losses = []
