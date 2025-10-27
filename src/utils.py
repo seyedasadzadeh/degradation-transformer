@@ -4,7 +4,7 @@ Only implements the ParisLawDegradation
 """
 import numpy as np
 import torch
-from IPython.display import display, clear_output
+#from IPython.display import display, clear_output
 import matplotlib.pyplot as plt
 
 import plotly.graph_objects as go

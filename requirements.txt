@@ -1,0 +1,8 @@
+torch
+numpy
+matplotlib
+plotly
+safetensors
+gradio
+pytest
+pytest-cov
