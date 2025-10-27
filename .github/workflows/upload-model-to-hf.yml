@@ -21,6 +21,6 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          huggingface-cli login --token $HF_TOKEN
-          huggingface-cli upload smasadzadeh/degradation-transformer *.safetensors
-          huggingface-cli upload smasadzadeh/degradation-transformer src/utils.py
+          python -m huggingface-cli login --token $HF_TOKEN
+          python -m huggingface-cli upload smasadzadeh/degradation-transformer *.safetensors
+          python -m huggingface-cli upload smasadzadeh/degradation-transformer src/utils.py
