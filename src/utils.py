@@ -7,6 +7,7 @@ import torch
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from IPython.display import display, clear_output
 
 
 # ----------------------------------------------------------------------------------------------
@@ -415,7 +416,24 @@ class Learner():
         return x.cpu().numpy()
     def save_model(self, filename="model.safetensors"):
         from safetensors.torch import save_model
+        import json
+        
+        # Save model weights
         save_model(self.model, filename)
+        
+        # Save config
+        config = {
+            'vocab_size': self.model.vocab_size,
+            'context_window': self.model.context_window,
+            'embedding_dim': self.model.tpembed.token_embed.embedding_dim,
+            'num_heads': self.model.tbls_list[0].mha.num_heads,
+            'num_blocks': len(self.model.tbls_list)
+        }
+        config_filename = filename.replace('.safetensors', '_config.json')
+        with open(config_filename, 'w') as f:
+            json.dump(config, f)
+
+
 
 class Callback:
     def __init__(self): pass
@@ -451,7 +469,6 @@ class LogitDistributionCallback(Callback):
                 plt.show()
 
 class ProgressCallback(Callback):
-    from IPython.display import display, clear_output
     def __init__(self, update_freq=50):
         self.update_freq = update_freq
         self.train_losses = []

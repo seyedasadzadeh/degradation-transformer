@@ -3,6 +3,9 @@ name: Upload Model to HuggingFace
 on:
   push:
     branches: [ master ]
+    paths:
+      - '*.safetensors'
+      - 'src/utils.py'
 
 
 jobs:
@@ -40,6 +43,13 @@ jobs:
               path_in_repo="utils.py",
               repo_id=repo_id
           )
+            # Upload all config files
+          for file in glob.glob("*config.json"):
+              api.upload_file(
+                  path_or_fileobj=file,
+                  path_in_repo=file,
+                  repo_id=repo_id
+              )
           EOF
 
       
