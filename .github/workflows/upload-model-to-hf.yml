@@ -20,6 +20,26 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          python -m huggingface-cli login --token $HF_TOKEN
-          python -m huggingface-cli upload smasadzadeh/degradation-transformer *.safetensors
-          python -m huggingface-cli upload smasadzadeh/degradation-transformer src/utils.py
+          python << EOF
+          from huggingface_hub import HfApi
+          import glob
+          
+          api = HfApi(token="$HF_TOKEN")
+          repo_id = "smasadzadeh/degradation-transformer"
+          # Upload all safetensors files
+          for file in glob.glob("*.safetensors"):
+              api.upload_file(
+                  path_or_fileobj=file,
+                  path_in_repo=file,
+                  repo_id=repo_id
+              )
+          
+          # Upload utils.py
+          api.upload_file(
+              path_or_fileobj="src/utils.py",
+              path_in_repo="utils.py",
+              repo_id=repo_id
+          )
+          EOF
+
+      
