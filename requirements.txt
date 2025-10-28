@@ -6,3 +6,4 @@ safetensors
 gradio
 pytest
 pytest-cov
+Ipython
