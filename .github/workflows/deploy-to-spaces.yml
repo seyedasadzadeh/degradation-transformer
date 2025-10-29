@@ -51,7 +51,7 @@ jobs:
           # Upload requirements
           api.upload_file(
               path_or_fileobj="requirements-app.txt",
-              path_in_repo="requirements.txt",
+              path_in_repo="requirements-app.txt",
               repo_id=repo_id,
               repo_type="space"
           )
