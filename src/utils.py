@@ -5,9 +5,8 @@ Only implements the ParisLawDegradation
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from IPython.display import display, clear_output
+
+# NOTE as for docker containerization we import other packages where they needed, inside class methods/functions
 
 
 # ----------------------------------------------------------------------------------------------
@@ -475,6 +474,7 @@ class ProgressCallback(Callback):
         self.test_losses = []
 
     def before_fit(self, learner):
+        from IPython.display import clear_output
         clear_output(wait=True)
         self.train_losses = []
         self.test_losses = []
@@ -490,6 +490,9 @@ class ProgressCallback(Callback):
             self._update_plot()
 
     def _update_plot(self):
+        from IPython.display import clear_output
+        from plotly.subplots import make_subplots
+        import plotly.graph_objects as go
         clear_output(wait=True)
         fig = make_subplots(
             rows=2, cols=1,
@@ -512,6 +515,7 @@ class ProgressCallback(Callback):
         fig.show()
 
     def after_fit(self, learner):
+        from IPython.display import clear_output
         clear_output(wait=True)
         self.train_losses = []
         self.test_losses = []

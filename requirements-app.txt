@@ -2,5 +2,5 @@ torch
 numpy
 matplotlib
 safetensors
-pytest
-pytest-cov
+gradio
+huggingface_hub

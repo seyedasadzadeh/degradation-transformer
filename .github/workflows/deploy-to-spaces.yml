@@ -1,0 +1,68 @@
+name: Deploy to HuggingFace spaces
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'app.py'
+      - 'src/**'
+      - 'requirements-app.txt'
+      - 'Dockerfile.app'
+
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Install huggingface_hub
+        run: pip install huggingface_hub
+      
+      - name: Upload to HuggingFace
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python << EOF
+          from huggingface_hub import HfApi
+          import glob
+          
+          api = HfApi(token="$HF_TOKEN")
+          repo_id = "smasadzadeh/degradation-transformer-app"
+
+          # Upload Dockerfile (rename from Dockerfile.app)
+          api.upload_file(
+              path_or_fileobj="Dockerfile.app",
+              path_in_repo="Dockerfile",
+              repo_id=repo_id,
+              repo_type="space"
+          )
+          
+          # Upload app.py
+          api.upload_file(
+              path_or_fileobj="app.py",
+              path_in_repo="app.py",
+              repo_id=repo_id,
+              repo_type="space"
+          )
+          
+          # Upload requirements
+          api.upload_file(
+              path_or_fileobj="requirements-app.txt",
+              path_in_repo="requirements.txt",
+              repo_id=repo_id,
+              repo_type="space"
+          )
+          
+          # Upload entire src folder
+          api.upload_folder(
+              folder_path="src",
+              path_in_repo="src",
+              repo_id=repo_id,
+              repo_type="space"
+          )
+          EOF
+
+      
