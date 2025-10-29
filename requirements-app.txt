@@ -1,6 +1,6 @@
 torch
-numpy
 matplotlib
+numpy
 safetensors
 gradio
 huggingface_hub
