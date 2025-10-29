@@ -7,5 +7,7 @@ COPY src/ src/
 
 COPY app.py .
 EXPOSE 7860
+ENV MPLCONFIGDIR=/tmp/matplotlib
+ENV HF_HOME=/tmp/huggingface
 CMD ["python", "app.py"]
 
