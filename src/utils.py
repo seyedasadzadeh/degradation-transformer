@@ -32,42 +32,92 @@ class BaseDegradationProcess:
 
 
 class ParisLawDegradation(BaseDegradationProcess):
-    """Paris–Erdogan fatigue crack growth model.
+    """
+    Paris–Erdogan fatigue crack growth model.
+    Paris’ law (fatigue crack growth)
+    $dX = C\,(\pi X)^{m/2}\,\sigma^m\,dt$  (or simplified $dX = k X^{m/2}\,dt$)
 
-    Parameters mirrored from the notebook: C, m, delta_sigma, beta.
     """
 
-    def __init__(self, length, dim, C=1e-12, m=3, delta_sigma=100, beta=1):
+    def __init__(self, length, dim, c=1e-12, m=3):
         super().__init__(length, dim)
-        self.C = float(C)
+        self.c = float(c)
         self.m = float(m)
-        self.delta_sigma = float(delta_sigma)
-        self.beta = float(beta)
-
-    def delta_K(self, a):
-        a = np.atleast_1d(np.asarray(a))
-        return self.delta_sigma * np.sqrt(np.pi * a) * self.beta
 
     def xdot(self, a):
         a = np.atleast_1d(np.asarray(a))
-        return self.C * (self.delta_K(a) ** self.m)
+        return self.c * a ** (self.m/2)
+
+class SEILayer(BaseDegradationProcess):
+    """
+    A general class for these degradation mechanisms:
+     - SEI layer growth (diffusion-limited)
+    $dX = \dfrac{k}{X}\,dt$
+
+    - Dead lithium formation
+    $dX = \gamma_0\,\dfrac{X_0}{X}\,c_{\text{Li}}\,dt$
 
 
+    """
+
+    def __init__(self, length, dim, k):
+        super().__init__(length, dim)
+        self.k = float(k)
+        
+    def xdot(self, a):
+        a = np.atleast_1d(np.asarray(a))
+        return self.k / a
+class LogisticStiffness(BaseDegradationProcess):
+    """
+    A general class for these degradation mechanisms:
+     Stiffness degradation (logistic)
+     $dX = -\alpha X\,(1-X/X_{\max})\,dt$
+
+
+    """
+
+    def __init__(self, length, dim, alfa, xmax):
+        super().__init__(length, dim)
+        self.alfa = float(alfa)
+        self.xmax = float(xmax)
+        
+    def xdot(self, a):
+        a = np.atleast_1d(np.asarray(a))
+        return self.alfa * a * (1 - a / self.xmax)
+    
+class LogLogisticStiffness(BaseDegradationProcess):
+    """
+    A general class for these degradation mechanisms:
+     Log-logistic seal degradation
+     $dX = beta (x/alpha)^{1-k} / (1 + (x/alpha)^{k-1}) dt$
+
+
+    """
+
+    def __init__(self, length, dim, alfa, beta, k):
+        super().__init__(length, dim)
+        self.alfa = float(alfa)
+        self.beta = float(beta)
+        self.k = float(k)
+        
+    def xdot(self, a):
+        a = np.atleast_1d(np.asarray(a))
+        return self.beta * (a/self.alfa)**(1-self.k) * (1 - a/self.alfa)** (self.k -1)
+    
 class RandomShockDegradation(BaseDegradationProcess):
     """Gaussian time between shocks (e.g., mean=10 steps, std=3?)
         Gaussian shock magnitude
         adds also baseline (Paris or linear)
     """
 
-    def __init__(self, length, dim, mu_t, sigma_t, mu_shock, sigma_shock, baseline=True):
+    def __init__(self, length, dim, mu_t, sigma_t, mu_shock, sigma_shock, baseline=None):
         super().__init__(length, dim)
         self.mu_t = float(mu_t)
         self.sigma_t = float(sigma_t)
         self.mu_shock = float(mu_shock)
         self.sigma_shock = float(sigma_shock)
         self.baseline = baseline
-        if baseline:
-            self.c = 0.02
+        
         self.tao = int(np.random.randn()*self.sigma_t+self.mu_t)
 
 
@@ -75,12 +125,10 @@ class RandomShockDegradation(BaseDegradationProcess):
     def xdot(self, a):
         a = np.atleast_1d(np.asarray(a))
         # assume x(t+1) = xt + bt + st
-        bt=0
-        if self.baseline:
-            bt = self.c
+        
         self.tao = self.tao - 1 if self.tao>0 else int(np.random.randn()*self.sigma_t+self.mu_t)
         st = 0 if self.tao>0 else np.random.randn()*self.sigma_shock+self.mu_shock
-        return bt + st
+        return st+self.baseline if self.baseline else st
 
 class LinearDegradation(BaseDegradationProcess):
     """

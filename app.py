@@ -79,7 +79,7 @@ with gr.Blocks() as demo:
         with gr.Row():
             # Input options here
             data_file = gr.File(file_count='single', label='Input .npy file shape=n, context_window')
-            data_text = gr.Text(label='input comma seperated numbers with len context window', placeholder='e.g. 1, 2, 3, ..., ')
+            data_text = gr.Text(label='input comma seperated numbers with len context window=40', placeholder='e.g. 1, 2, 3, ..., ')
         with gr.Row():   
             num_periods = gr.Slider(value=60, label='Number of periods to predict', precision=0)
 
