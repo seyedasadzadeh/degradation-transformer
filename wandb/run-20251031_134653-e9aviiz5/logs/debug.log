@@ -1,0 +1,29 @@
+2025-10-31 13:46:53,712 INFO    MainThread:48910 [wandb_init.py:setup_run_log_directory():706] Logging user logs to /Users/Mohammad/Documents/ds-projects/deg-predict-demo/degradation-transformer/wandb/run-20251031_134653-e9aviiz5/logs/debug.log
+2025-10-31 13:46:53,715 INFO    MainThread:48910 [wandb_init.py:setup_run_log_directory():707] Logging internal logs to /Users/Mohammad/Documents/ds-projects/deg-predict-demo/degradation-transformer/wandb/run-20251031_134653-e9aviiz5/logs/debug-internal.log
+2025-10-31 13:46:53,716 INFO    MainThread:48910 [wandb_init.py:monkeypatch_ipython():625] configuring jupyter hooks <wandb.sdk.wandb_init._WandbInit object at 0x318aa4ed0>
+2025-10-31 13:46:53,783 INFO    MainThread:48910 [wandb_init.py:init():833] calling init triggers
+2025-10-31 13:46:53,784 INFO    MainThread:48910 [wandb_init.py:init():838] wandb.init called with sweep_config: {}
+config: {'_wandb': {}}
+2025-10-31 13:46:53,784 INFO    MainThread:48910 [wandb_init.py:init():881] starting backend
+2025-10-31 13:46:53,784 INFO    MainThread:48910 [wandb_init.py:init():884] sending inform_init request
+2025-10-31 13:46:53,826 INFO    MainThread:48910 [wandb_init.py:init():892] backend started and connected
+2025-10-31 13:46:54,346 INFO    MainThread:48910 [wandb_run.py:_label_probe_notebook():1328] probe notebook
+2025-10-31 13:46:54,558 INFO    MainThread:48910 [wandb_init.py:init():962] updated telemetry
+2025-10-31 13:46:54,859 INFO    MainThread:48910 [wandb_init.py:init():986] communicating run to backend with 90.0 second timeout
+2025-10-31 13:46:55,202 INFO    MainThread:48910 [wandb_init.py:init():1033] starting run threads in backend
+2025-10-31 13:46:55,772 INFO    MainThread:48910 [wandb_run.py:_console_start():2506] atexit reg
+2025-10-31 13:46:55,773 INFO    MainThread:48910 [wandb_run.py:_redirect():2354] redirect: wrap_raw
+2025-10-31 13:46:55,774 INFO    MainThread:48910 [wandb_run.py:_redirect():2423] Wrapping output streams.
+2025-10-31 13:46:55,776 INFO    MainThread:48910 [wandb_run.py:_redirect():2446] Redirects installed.
+2025-10-31 13:46:55,788 INFO    MainThread:48910 [wandb_init.py:init():1073] run started, returning control to user process
+2025-10-31 13:47:01,622 INFO    MainThread:48910 [wandb_init.py:_post_run_cell_hook():595] [no run ID] resuming backend
+2025-10-31 13:48:05,867 INFO    MainThread:48910 [jupyter.py:save_ipynb():353] [no run ID] not saving jupyter notebook
+2025-10-31 13:48:05,878 INFO    MainThread:48910 [wandb_init.py:_pre_run_cell_hook():584] [no run ID] pausing backend
+2025-10-31 13:48:05,994 INFO    MainThread:48910 [wandb_run.py:_finish():2272] finishing run smasadzadeh-freelancer/degradation-transformer/e9aviiz5
+2025-10-31 13:48:06,008 INFO    MainThread:48910 [jupyter.py:save_history():429] not saving jupyter history
+2025-10-31 13:48:06,008 INFO    MainThread:48910 [jupyter.py:save_ipynb():353] not saving jupyter notebook
+2025-10-31 13:48:06,008 INFO    MainThread:48910 [wandb_init.py:_jupyter_teardown():610] cleaning up jupyter logic
+2025-10-31 13:48:06,010 INFO    MainThread:48910 [wandb_run.py:_atexit_cleanup():2471] got exitcode: 0
+2025-10-31 13:48:06,013 INFO    MainThread:48910 [wandb_run.py:_restore():2453] restore
+2025-10-31 13:48:06,015 INFO    MainThread:48910 [wandb_run.py:_restore():2459] restore done
+2025-10-31 13:48:07,109 INFO    MainThread:48910 [wandb_run.py:_footer_sync_info():3835] logging synced files

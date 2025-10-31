@@ -4,3 +4,6 @@ numpy
 safetensors
 gradio
 huggingface_hub
+wandb
+
+WANDB_API_KEY = e7ff92733ecd3e9b62278a4128742a4ee9b0b1cd

@@ -49,9 +49,9 @@ def process_input(file, text_input, num_periods):
     return predict_and_plot(data, num_periods)
 
 # Download model and config
-def get_model_from_safetensors_and_config(safetensor_filename="degradation_transformer_model.safetensors",
+def get_model_from_safetensors_and_config_in_hf_repo(safetensor_filename="degradation_transformer_model.safetensors",
                                            config_filename="degradation_transformer_model_config.json"):
-    model_path = hf_hub_download(
+    model_weights = hf_hub_download(
         repo_id="smasadzadeh/degradation-transformer",
         filename=safetensor_filename
     )
@@ -63,7 +63,25 @@ def get_model_from_safetensors_and_config(safetensor_filename="degradation_trans
     # Load config and create model
     model_params = json.load(open(config_path))
     model = DegradationTransformer(**model_params)
-    load_model(model, model_path)
+    load_model(model, model_weights)
+    return model
+
+def get_model_from_safetensors_and_config(safetensor_filename="degradation_transformer_model.safetensors",
+                                           config_filename="degradation_transformer_model_config.json"):
+    import wandb
+    import os
+    api = wandb.Api(api_key=os.environ.get("WANDB_API_KEY"))
+    artifact = api.artifact('smasadzadeh-freelancer/degradation-transformer/degradation-transformer-model:Production')
+
+    artifact_dir = artifact.download()
+
+    model_weights_path = os.path.join(artifact_dir, safetensor_filename)
+    config_path = os.path.join(artifact_dir, config_filename)
+
+    # Load config and create model
+    model_params = json.load(open(config_path))
+    model = DegradationTransformer(**model_params)
+    load_model(model, model_weights_path)
     return model
 
 # Create minimal learner

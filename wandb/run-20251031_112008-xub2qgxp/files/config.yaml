@@ -1,0 +1,67 @@
+_wandb:
+    value:
+        cli_version: 0.22.3
+        e:
+            cs6kotnresdxxtz3ahdqeg5d5ohweps9:
+                apple:
+                    ecpuCores: 4
+                    gpuCores: 8
+                    memoryGb: 8
+                    name: Apple M1
+                    pcpuCores: 4
+                    ramTotalBytes: "8589934592"
+                    swapTotalBytes: "18253611008"
+                codePath: /Users/Mohammad/Documents/ds-projects/deg-predict-demo/degradation-transformer/main.ipynb
+                codePathLocal: main.ipynb
+                cpu_count: 8
+                cpu_count_logical: 8
+                disk:
+                    /:
+                        total: "494384795648"
+                        used: "298983436288"
+                email: s.m.asadzade@gmail.com
+                executable: /Users/Mohammad/miniconda3/envs/smartchp/bin/python
+                git:
+                    commit: fcecdcf3abeebee8697e65f9156d2c2d97c9d96c
+                    remote: https://github.com/seyedasadzadeh/degradation-transformer.git
+                host: MacBookAir.home
+                memory:
+                    total: "8589934592"
+                os: macOS-15.5-arm64-arm-64bit
+                program: /Users/Mohammad/Documents/ds-projects/deg-predict-demo/degradation-transformer/main.ipynb
+                python: CPython 3.11.13
+                root: /Users/Mohammad/Documents/ds-projects/deg-predict-demo/degradation-transformer
+                startedAt: "2025-10-31T10:20:08.315291Z"
+                writerId: cs6kotnresdxxtz3ahdqeg5d5ohweps9
+        m: []
+        python_version: 3.11.13
+        t:
+            "1":
+                - 1
+                - 105
+            "2":
+                - 1
+                - 105
+            "3":
+                - 2
+                - 16
+            "4": 3.11.13
+            "5": 0.22.3
+            "8":
+                - 1
+            "12": 0.22.3
+            "13": darwin-arm64
+context_window:
+    value: 40
+embedding_dim:
+    value: 32
+epochs:
+    value: 1
+learning_rate:
+    value: 0.002
+num_blocks:
+    value: 10
+num_heads:
+    value: 2
+vocab_size:
+    value: 1000

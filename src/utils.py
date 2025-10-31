@@ -60,13 +60,18 @@ class SEILayer(BaseDegradationProcess):
 
     """
 
-    def __init__(self, length, dim, k):
+    def __init__(self, length, dim, k, sigma_e=0):
         super().__init__(length, dim)
         self.k = float(k)
+        self.sigma_e = float(sigma_e)
+        self.noise = (sigma_e > 0)  # Auto-detect if noise
         
     def xdot(self, a):
         a = np.atleast_1d(np.asarray(a))
-        return self.k / a
+        e = np.random.randn() * self.sigma_e if self.noise else 0
+        return self.k / a * (1 + e) # multiplicative noise
+
+
 class LogisticStiffness(BaseDegradationProcess):
     """
     A general class for these degradation mechanisms:
@@ -76,14 +81,18 @@ class LogisticStiffness(BaseDegradationProcess):
 
     """
 
-    def __init__(self, length, dim, alfa, xmax):
+    def __init__(self, length, dim, alfa, xmax, sigma_e=0):
         super().__init__(length, dim)
         self.alfa = float(alfa)
         self.xmax = float(xmax)
+        self.sigma_e = float(sigma_e)
+        self.noise = (sigma_e > 0)  # Auto-detect if noise
         
     def xdot(self, a):
         a = np.atleast_1d(np.asarray(a))
-        return self.alfa * a * (1 - a / self.xmax)
+        fx = self.alfa * a * (1 - a / self.xmax)
+        e = np.random.randn() * self.sigma_e if self.noise else 0
+        return fx + e
     
 class LogLogisticStiffness(BaseDegradationProcess):
     """
@@ -94,15 +103,19 @@ class LogLogisticStiffness(BaseDegradationProcess):
 
     """
 
-    def __init__(self, length, dim, alfa, beta, k):
+    def __init__(self, length, dim, alfa, beta, k, sigma_e=0):
         super().__init__(length, dim)
         self.alfa = float(alfa)
         self.beta = float(beta)
         self.k = float(k)
+        self.sigma_e = float(sigma_e)
+        self.noise = (sigma_e > 0)  # Auto-detect if noise
         
     def xdot(self, a):
         a = np.atleast_1d(np.asarray(a))
-        return self.beta * (a/self.alfa)**(1-self.k) * (1 - a/self.alfa)** (self.k -1)
+        e = np.random.randn() * self.sigma_e if self.noise else 0
+        fx = self.beta * (a/self.alfa)**(1-self.k) * (1 - a/self.alfa)** (self.k -1)
+        return fx + e
     
 class RandomShockDegradation(BaseDegradationProcess):
     """Gaussian time between shocks (e.g., mean=10 steps, std=3?)
@@ -386,6 +399,7 @@ class Learner():
             return loss
 
     def fit(self, num_epochs):
+        self.num_epochs = num_epochs
         for cb in self.cbs:
                 cb.before_fit(self)
         
@@ -567,3 +581,53 @@ class ProgressCallback(Callback):
         clear_output(wait=True)
         self.train_losses = []
         self.test_losses = []
+
+class WandBCallback(Callback):
+    def __init__(self, update_freq=50):
+        self.update_freq = update_freq
+        self.train_losses = []
+        self.test_losses = []
+
+    def before_fit(self, learner):
+        import wandb
+        self.run = wandb.init(project="degradation-transformer",
+                   config = {
+                       'vocab_size': learner.model.vocab_size,
+                        'context_window': learner.model.context_window,
+                        'embedding_dim': learner.model.tpembed.token_embed.embedding_dim,
+                        'num_heads': learner.model.tbls_list[0].mha.num_heads,
+                        'num_blocks': len(learner.model.tbls_list),
+                        "learning_rate": learner.optim.param_groups[0]['lr'],
+                        "epochs": learner.num_epochs
+                        }
+                    )
+        self.run.log({"train_size": len(learner.train_loader), "test_size": len(learner.test_loader)})
+
+
+    def after_train_batch(self, learner):
+        if learner.train_idx % self.update_freq == 0:
+            self.train_losses = [loss.item() for loss in learner.train_losses]
+            self.run.log({"train_loss": self.train_losses[-1]})
+
+    def after_test_batch(self, learner):
+        if learner.test_idx % self.update_freq == 0:
+            self.test_losses = [loss.item() for loss in learner.test_losses]
+            self.run.log({"test_loss": self.test_losses[-1]})
+            
+
+    def after_epoch(self, learner):
+        self.run.log({"last_test_loss": sum(self.test_losses[-50:]) / len(self.test_losses[-50:]), 
+                      "epoch": learner.epoch})
+    
+    def after_fit(self, learner):
+        # save model files
+        learner.save_model("degradation_transformer_model.safetensors") # this saves config as well
+
+        # create artifact
+        import wandb
+        artifact = wandb.Artifact('degradation-transformer-model', type='model')
+        artifact.add_file('degradation_transformer_model.safetensors')
+        artifact.add_file('degradation_transformer_model_config.json')
+        self.run.log_artifact(artifact)
+
+        self.run.finish()
