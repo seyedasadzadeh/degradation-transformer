@@ -9,5 +9,7 @@ COPY app.py .
 EXPOSE 7860
 ENV MPLCONFIGDIR=/tmp/matplotlib
 ENV HF_HOME=/tmp/huggingface
+ENV WANDB_CACHE_DIR=/tmp/wandb
+ENV WANDB_CONFIG_DIR=/tmp/wandb
 CMD ["python", "app.py"]
 

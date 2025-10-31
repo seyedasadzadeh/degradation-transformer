@@ -48,7 +48,7 @@ def process_input(file, text_input, num_periods):
     
     return predict_and_plot(data, num_periods)
 
-# Download model and config
+# Download model and config from HF model repo
 def get_model_from_safetensors_and_config_in_hf_repo(safetensor_filename="degradation_transformer_model.safetensors",
                                            config_filename="degradation_transformer_model_config.json"):
     model_weights = hf_hub_download(
@@ -65,7 +65,7 @@ def get_model_from_safetensors_and_config_in_hf_repo(safetensor_filename="degrad
     model = DegradationTransformer(**model_params)
     load_model(model, model_weights)
     return model
-
+# Download model and config from wandb artifact
 def get_model_from_safetensors_and_config(safetensor_filename="degradation_transformer_model.safetensors",
                                            config_filename="degradation_transformer_model_config.json"):
     import wandb
