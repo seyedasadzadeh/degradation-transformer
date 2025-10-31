@@ -73,7 +73,7 @@ def get_model_from_safetensors_and_config(safetensor_filename="degradation_trans
     api = wandb.Api(api_key=os.environ.get("WANDB_API_KEY"))
     artifact = api.artifact('smasadzadeh-freelancer/degradation-transformer/degradation-transformer-model:Production')
 
-    artifact_dir = artifact.download()
+    artifact_dir = artifact.download(root="/tmp/wandb_artifacts")
 
     model_weights_path = os.path.join(artifact_dir, safetensor_filename)
     config_path = os.path.join(artifact_dir, config_filename)
