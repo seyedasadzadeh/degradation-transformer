@@ -582,6 +582,11 @@ class ProgressCallback(Callback):
         self.train_losses = []
         self.test_losses = []
 
+class SaveModel(Callback):
+    def after_fit(self, learner):
+        # save model files
+        learner.save_model("degradation_transformer_model.safetensors") # this saves config as well
+
 class WandBCallback(Callback):
     def __init__(self, update_freq=50):
         self.update_freq = update_freq
@@ -620,14 +625,13 @@ class WandBCallback(Callback):
                       "epoch": learner.epoch})
     
     def after_fit(self, learner):
-        # save model files
-        learner.save_model("degradation_transformer_model.safetensors") # this saves config as well
-
         # create artifact
         import wandb
         artifact = wandb.Artifact('degradation-transformer-model', type='model')
         artifact.add_file('degradation_transformer_model.safetensors')
         artifact.add_file('degradation_transformer_model_config.json')
         self.run.log_artifact(artifact)
+        # note that the above files are created by SaveModel callback
+        # SaveModel callback must be used before this WandBCallback
 
         self.run.finish()
