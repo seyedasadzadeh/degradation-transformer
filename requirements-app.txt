@@ -1,7 +1,10 @@
 torch
 matplotlib
 numpy
+pandas>=2.0.0
 safetensors
 gradio
 huggingface_hub
 wandb
+Ipython
+mlflow
