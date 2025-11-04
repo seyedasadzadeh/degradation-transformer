@@ -625,13 +625,96 @@ class WandBCallback(Callback):
                       "epoch": learner.epoch})
     
     def after_fit(self, learner):
+       
+
         # create artifact
         import wandb
         artifact = wandb.Artifact('degradation-transformer-model', type='model')
         artifact.add_file('degradation_transformer_model.safetensors')
         artifact.add_file('degradation_transformer_model_config.json')
         self.run.log_artifact(artifact)
-        # note that the above files are created by SaveModel callback
-        # SaveModel callback must be used before this WandBCallback
 
         self.run.finish()
+
+
+
+
+
+
+class MLflowCallback(Callback):
+    def __init__(self, update_freq=50):
+        self.update_freq = update_freq
+        self.train_losses = []
+        self.test_losses = []
+
+    def before_fit(self, learner):
+        import mlflow
+        mlflow.start_run()
+        mlflow.log_params({
+                       'vocab_size': learner.model.vocab_size,
+                        'context_window': learner.model.context_window,
+                        'embedding_dim': learner.model.tpembed.token_embed.embedding_dim,
+                        'num_heads': learner.model.tbls_list[0].mha.num_heads,
+                        'num_blocks': len(learner.model.tbls_list),
+                        "learning_rate": learner.optim.param_groups[0]['lr'],
+                        "epochs": learner.num_epochs
+                        }
+                    )
+        mlflow.log_metric("train_size", len(learner.train_loader))
+        mlflow.log_metric("test_size", len(learner.test_loader))
+
+
+    def after_train_batch(self, learner):
+        import mlflow
+        if learner.train_idx % self.update_freq == 0:
+            self.train_losses = [loss.item() for loss in learner.train_losses]
+            mlflow.log_metric("train_loss", self.train_losses[-1], step=learner.train_idx)
+
+    def after_test_batch(self, learner):
+        import mlflow
+        if learner.test_idx % self.update_freq == 0:
+            self.test_losses = [loss.item() for loss in learner.test_losses]
+            mlflow.log_metric("test_loss", self.test_losses[-1], step=learner.test_idx)
+            
+
+    def after_epoch(self, learner):
+        import mlflow
+        mlflow.log_metric("last_test_loss", sum(self.test_losses[-50:]) / len(self.test_losses[-50:]), 
+                      step=learner.epoch)
+    
+    def after_fit(self, learner):
+        import mlflow
+        import mlflow.pytorch
+        import torch
+
+        # Put model in eval mode
+        learner.model.eval()
+        
+        # Create example input
+        example_input = torch.randint(
+            0, learner.model.vocab_size,
+            (1, learner.model.context_window)
+        )
+        
+        # Generate example output (forward pass, no grad)
+        with torch.no_grad():
+            example_output = learner.model(example_input)
+        
+        # Convert to numpy for MLflow
+        example_input_np = example_input.cpu().numpy()
+        example_output_np = example_output.cpu().numpy()
+
+        # Start MLflow run (if not already active)
+        if not mlflow.active_run():
+            mlflow.start_run()
+
+        # Log model with both input and output examples
+        mlflow.pytorch.log_model(
+            pytorch_model=learner.model,
+            artifact_path="model",
+            input_example=example_input_np,
+            output_example=example_output_np  # This is critical!
+        )
+
+        mlflow.end_run()
+    
