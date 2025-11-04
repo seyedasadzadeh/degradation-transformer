@@ -1,13 +1,12 @@
-"""Small generator module 
 
-Only implements the ParisLawDegradation 
-"""
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
-# NOTE as for docker containerization we import other packages where they needed, inside class methods/functions
-
+"""
+# NOTE: As for docker containerization we import other packages where they needed, 
+# inside class methods/functions
+"""
 
 # ----------------------------------------------------------------------------------------------
 # 
@@ -260,7 +259,6 @@ class TokenPositionEmbedding(torch.nn.Module):
         return tex+pex
 
 
-
 class MultiHeadAttention(torch.nn.Module):
     def __init__(self, embedding_dim, num_heads):
         super().__init__()
@@ -313,8 +311,6 @@ class FeedForward(torch.nn.Module):
         out = self.layernorm(x_proj2_plus_input) # 32, 40, 4*128
         return out
 
-
-
 class TransformerBlock(torch.nn.Module):
     def __init__(self, embedding_dim, num_heads):
         super().__init__()
@@ -326,10 +322,6 @@ class TransformerBlock(torch.nn.Module):
         mha_out = self.mha(x)
         out = self.ff(mha_out)
         return out
-
-
-
-
 
 class DegradationTransformer(torch.nn.Module):
     def __init__(self, vocab_size, context_window, embedding_dim, num_heads, num_blocks):
@@ -631,7 +623,8 @@ class WandBCallback(Callback):
         artifact.add_file('degradation_transformer_model.safetensors')
         artifact.add_file('degradation_transformer_model_config.json')
         self.run.log_artifact(artifact)
-        # note that the above files are created by SaveModel callback
+
+        # Note that the above files are created by SaveModel callback
         # SaveModel callback must be used before this WandBCallback
 
         self.run.finish()
