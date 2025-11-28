@@ -189,7 +189,7 @@ def adaptive_digitize(episodes, q_bins=100, sub_bins=10):
     return np.digitize(episodes, adaptive_bins)-1
 
 class UniformDigitizer():
-    def __init__(self, vocab_size, min_val=0, max_val=2.0):
+    def __init__(self, vocab_size, min_val=0, max_val=1.3):
         self.vocab_size = vocab_size
         self.min_val = min_val
         self.max_val = max_val
@@ -467,6 +467,7 @@ class Learner():
                 x = torch.cat([x, predicted_y_torch], dim=1)
         
         return x.cpu().numpy()
+    
     def save_model(self, filename="model.safetensors"):
         from safetensors.torch import save_model
         import json
@@ -682,10 +683,13 @@ class MLflowCallback(Callback):
         # Put model in eval mode
         learner.model.eval()
         
-        # Create example input
-        example_input = torch.randint(
-            0, learner.model.vocab_size,
-            (1, learner.model.context_window)
+        # Get device from model
+        device = next(learner.model.parameters()).device
+        
+        # Create example input with float values (not integers)
+        example_input = torch.randn(
+            1, learner.model.context_window,
+            device=device
         )
         
         # Generate example output (forward pass, no grad)

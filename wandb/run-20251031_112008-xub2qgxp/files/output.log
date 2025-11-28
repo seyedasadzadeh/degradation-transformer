@@ -1,5 +1,0 @@
-/Users/Mohammad/miniconda3/envs/smartchp/lib/python3.11/site-packages/torch/utils/data/dataloader.py:684: UserWarning: 'pin_memory' argument is set as true but not supported on MPS now, then device pinned memory won't be used.
-  warnings.warn(warn_msg)
-/Users/Mohammad/miniconda3/envs/smartchp/lib/python3.11/site-packages/torch/utils/data/dataloader.py:684: UserWarning:
-
-'pin_memory' argument is set as true but not supported on MPS now, then device pinned memory won't be used.
