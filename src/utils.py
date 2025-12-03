@@ -447,7 +447,7 @@ class Learner():
         for cb in self.cbs:
                 cb.after_fit(self)
 
-    def predict(self, x, num_periods=60, temperature=1.0, top_k=None, top_p=None):
+    def predict(self, x, num_periods=60, temperature=1.0, top_k=None, top_p=None, grad=False, return_tensor=False):
         """
         Inference with the trained model (PyTorch version)
         
@@ -472,9 +472,11 @@ class Learner():
         if len(x.shape) == 1:
             x = x.unsqueeze(0)  # Add batch dimension
         
+        import contextlib
         log_probs = []
 
-        with torch.no_grad():
+        ctx = torch.no_grad() if not grad else contextlib.nullcontext()
+        with ctx:
             for _ in range(num_periods):
                 x_input = x[:, -self.model.context_window:]
                 
@@ -493,6 +495,10 @@ class Learner():
                 if temperature == 0.0:
                     # Greedy decoding
                     yhat_token = torch.argmax(logits, dim=-1).unsqueeze(-1)
+                    # If gradients are requested (RL), compute the log-prob of the selected token
+                    if grad:
+                        logp = torch.log_softmax(logits, dim=-1).gather(1, yhat_token).squeeze(-1)
+                        log_probs.append(logp)
                 else:
                     # Temperature scaling
                     logits = logits / temperature
@@ -522,7 +528,10 @@ class Learner():
                     probs = torch.softmax(logits, dim=-1)
                     dist = torch.distributions.Categorical(probs)
                     action = dist.sample()       # token index
-                    log_probs.append(dist.log_prob(action))
+                    # log_prob should be connected to the model parameters when grad=True
+                    lp = dist.log_prob(action)
+                    # always store lp (it will be a tensor; if grad=False it's detached by context)
+                    log_probs.append(lp)
                     yhat_token = action.unsqueeze(-1)
  
                 # De-digitize and denormalize
@@ -531,8 +540,21 @@ class Learner():
                 # Append to x (as torch tensor)
                 predicted_y_torch = torch.tensor(predicted_y, dtype=torch.float32, device=self.device)
                 x = torch.cat([x, predicted_y_torch], dim=1)
-        
-        return x.cpu().numpy(), log_probs
+        preds_tensor = x[:, self.model.context_window:]
+
+        # Enforce API contract: grad requires tensor outputs to keep autograd
+        if grad and not return_tensor:
+            raise ValueError("predict(..., grad=True) requires return_tensor=True so log_probs remain connected to autograd.")
+
+        if return_tensor:
+            return preds_tensor, log_probs
+        else:
+            preds_np = preds_tensor.cpu().numpy()
+            if log_probs:
+                logp_np = [lp.detach().cpu().numpy() for lp in log_probs]
+            else:
+                logp_np = None
+            return preds_np, logp_np
     
     def save_model(self, filename="model.safetensors"):
         from safetensors.torch import save_model
@@ -875,9 +897,8 @@ class RLHFLearner(Learner):
                 # 1. Rollout (Generate Trajectory)
                 # -------------------------------------------------------
                 
-                predictions, log_probs = self.predict(x_batch_float, num_periods=future_window, temperature=temperature)
-
-                
+                # Run rollout with gradients enabled for log_probs so policy gradient can flow
+                predictions, log_probs = self.predict(x_batch_float, num_periods=future_window, temperature=temperature, grad=True, return_tensor=True)
                 
                 # -------------------------------------------------------
                 # 2. Compute Reward
