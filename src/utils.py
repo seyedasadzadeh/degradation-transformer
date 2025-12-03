@@ -447,7 +447,7 @@ class Learner():
         for cb in self.cbs:
                 cb.after_fit(self)
 
-    def predict(self, x, num_periods=60, temperature=1.0, top_k=None, top_p=None, return_log_probs=False):
+    def predict(self, x, num_periods=60, temperature=1.0, top_k=None, top_p=None):
         """
         Inference with the trained model (PyTorch version)
         
@@ -532,9 +532,7 @@ class Learner():
                 predicted_y_torch = torch.tensor(predicted_y, dtype=torch.float32, device=self.device)
                 x = torch.cat([x, predicted_y_torch], dim=1)
         
-        if return_log_probs:
-            return x.cpu().numpy(), log_probs
-        return x.cpu().numpy()
+        return x.cpu().numpy(), log_probs
     
     def save_model(self, filename="model.safetensors"):
         from safetensors.torch import save_model
@@ -877,7 +875,7 @@ class RLHFLearner(Learner):
                 # 1. Rollout (Generate Trajectory)
                 # -------------------------------------------------------
                 
-                predictions, log_probs = self.predict(x_batch_float, num_periods=future_window, temperature=temperature, return_log_probs=True)
+                predictions, log_probs = self.predict(x_batch_float, num_periods=future_window, temperature=temperature)
 
                 
                 
