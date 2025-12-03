@@ -197,21 +197,41 @@ class UniformDigitizer():
     def digitize_np(self, data):
         bins = np.linspace(self.min_val, self.max_val, self.vocab_size-1)
         return np.digitize(data, bins)
+
     def de_digitize_np(self, token):
         bin_width = (self.max_val - self.min_val) / self.vocab_size
         return self.min_val + token * bin_width + bin_width / 2  # return center of the bin
+
+    def digitize_torch(self, data):
+        # data is tensor
+        device = data.device
+        bins = torch.linspace(self.min_val, self.max_val, self.vocab_size-1, device=device)
+        tokens = torch.bucketize(data, bins)
+        return torch.clamp(tokens, 0, self.vocab_size-1)
+
+    def de_digitize_torch(self, token):
+        # token is tensor
+        bin_width = (self.max_val - self.min_val) / self.vocab_size
+        return self.min_val + token.float() * bin_width + bin_width / 2
     
 class WindowNormalizer:
     def __init__(self, epsilon=1e-8):
         self.epsilon = epsilon
     
     def normalize(self, window, params=None):
-        window = np.asarray(window)  # Ensure it's a numpy array
-        if not params:
-            params = {'min': window.min(-1)[...,None], 'max': window.max(-1)[...,None]}
-        normalized = (window - params['min']) / (params['max'] - params['min'] + self.epsilon)
-        
-        return normalized, params
+        if isinstance(window, torch.Tensor):
+            if params is None:
+                min_val = window.min(dim=-1, keepdim=True)[0]
+                max_val = window.max(dim=-1, keepdim=True)[0]
+                params = {'min': min_val, 'max': max_val}
+            normalized = (window - params['min']) / (params['max'] - params['min'] + self.epsilon)
+            return normalized, params
+        else:
+            window = np.asarray(window)  # Ensure it's a numpy array
+            if not params:
+                params = {'min': window.min(-1)[...,None], 'max': window.max(-1)[...,None]}
+            normalized = (window - params['min']) / (params['max'] - params['min'] + self.epsilon)
+            return normalized, params
     
     def denormalize(self, normalized_value, params):
         return normalized_value * (params['max'] - params['min'] + self.epsilon) + params['min']
@@ -427,10 +447,19 @@ class Learner():
         for cb in self.cbs:
                 cb.after_fit(self)
 
-    def predict(self, x, num_periods=60):
+    def predict(self, x, num_periods=60, temperature=1.0, top_k=None, top_p=None):
         """
         Inference with the trained model (PyTorch version)
-        x: numpy array, 1D or 2D
+        
+        Args:
+            x: numpy array, 1D or 2D - initial context
+            num_periods: int - number of future steps to predict
+            temperature: float - sampling temperature
+                - 0.0: greedy (argmax)
+                - 1.0: sample from model distribution
+                - >1.0: more random (flatter distribution)
+            top_k: int or None - if set, only sample from top k tokens
+            top_p: float or None - if set, nucleus sampling (sample from smallest set with cumulative prob > p)
         """
         self.model.eval()
         
@@ -443,6 +472,8 @@ class Learner():
         if len(x.shape) == 1:
             x = x.unsqueeze(0)  # Add batch dimension
         
+        log_probs = []
+
         with torch.no_grad():
             for _ in range(num_periods):
                 x_input = x[:, -self.model.context_window:]
@@ -454,11 +485,46 @@ class Learner():
                 # Digitize and back to torch
                 x_dig = self.digitizer.digitize_np(x_norm)
                 x_dig = torch.tensor(x_dig, dtype=torch.long, device=self.device)
+                
                 # Inference
-                y_out = self.model(x_dig)
-                # Get predicted token
-                yhat_token = torch.argmax(y_out, dim=-1).unsqueeze(-1)
-
+                logits = self.model(x_dig)  # (batch_size, vocab_size)
+                
+                # Apply temperature
+                if temperature == 0.0:
+                    # Greedy decoding
+                    yhat_token = torch.argmax(logits, dim=-1).unsqueeze(-1)
+                else:
+                    # Temperature scaling
+                    logits = logits / temperature
+                    
+                    # Top-k filtering
+                    if top_k is not None:
+                        top_k = min(top_k, logits.size(-1))
+                        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+                        logits[indices_to_remove] = -float('Inf')
+                    
+                    # Top-p (nucleus) filtering
+                    if top_p is not None:
+                        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                        cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+                        
+                        # Remove tokens with cumulative probability above the threshold
+                        sorted_indices_to_remove = cumulative_probs > top_p
+                        # Shift the indices to the right to keep also the first token above the threshold
+                        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                        sorted_indices_to_remove[..., 0] = 0
+                        
+                        # Scatter sorted tensors to original indexing
+                        indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+                        logits[indices_to_remove] = -float('Inf')
+                    
+                    # Sample from the filtered distribution
+                    probs = torch.softmax(logits, dim=-1)
+                    dist = torch.distributions.Categorical(probs)
+                    action = dist.sample()       # token index
+                    log_probs.append(dist.log_prob(action))
+                    yhat_token = action.unsqueeze(-1)
+ 
                 # De-digitize and denormalize
                 yhat_norm = self.digitizer.de_digitize_np(yhat_token.cpu().numpy())
                 predicted_y = self.normalizer.denormalize(yhat_norm, par)
@@ -466,7 +532,7 @@ class Learner():
                 predicted_y_torch = torch.tensor(predicted_y, dtype=torch.float32, device=self.device)
                 x = torch.cat([x, predicted_y_torch], dim=1)
         
-        return x.cpu().numpy()
+        return x.cpu().numpy(), log_probs
     
     def save_model(self, filename="model.safetensors"):
         from safetensors.torch import save_model
@@ -690,7 +756,7 @@ class MLflowCallback(Callback):
         example_input = torch.randn(
             1, learner.model.context_window,
             device=device
-        )
+        ).long()
         
         # Generate example output (forward pass, no grad)
         with torch.no_grad():
@@ -709,8 +775,135 @@ class MLflowCallback(Callback):
             pytorch_model=learner.model,
             artifact_path="model",
             input_example=example_input_np,
-            output_example=example_output_np  # This is critical!
+            #output_example=example_output_np  # This is critical!
         )
 
         mlflow.end_run()
     
+
+# ----------------------------------------------------------------------------------------------
+# 
+#    
+#------------------------------------------- RLHF Components -----------------------------------
+#
+#
+# ----------------------------------------------------------------------------------------------
+
+class RLDataset(torch.utils.data.Dataset):
+    def __init__(self, data, context_window, future_window, vocab_size):
+        self.data = data
+        self.context_window = context_window
+        self.future_window = future_window
+        self.vocab_size = vocab_size
+        self.n_episodes, self.episode_length = data.shape
+        # We need enough space for context + future
+        self.samples_per_episode = self.episode_length - context_window - future_window
+        self.normalizer = WindowNormalizer()
+        self.digitizer = UniformDigitizer(vocab_size)
+
+    def __len__(self):
+        return self.n_episodes * self.samples_per_episode
+    
+    def __getitem__(self, idx):
+        episode_idx = idx // self.samples_per_episode
+        pos = idx % self.samples_per_episode
+        
+        # Context (Input)
+        x = self.data[episode_idx, pos : pos + self.context_window]
+        
+        # Future Ground Truth (Target)
+        y_future = self.data[episode_idx, pos + self.context_window : pos + self.context_window + self.future_window]
+        
+        # Normalize context
+        x_norm, par = self.normalizer.normalize(x)
+        
+        # Digitize context
+        x_dig = self.digitizer.digitize_np(x_norm)
+        
+        # Return:
+        # 1. Context tokens (for model input)
+        # 2. Future Ground Truth values (for reward calculation)
+        # 3. Normalization params (to denormalize predictions for comparison)
+        # 4. Raw Context Float (for dynamic renormalization during rollout)
+        return (torch.tensor(x_dig, dtype=torch.long), 
+                torch.tensor(y_future, dtype=torch.float32),
+                torch.tensor(np.array([par['min'], par['max']]), dtype=torch.float32),
+                torch.tensor(x, dtype=torch.float32))
+
+class MSE_Reward:
+    def __call__(self, y_pred, y_true):
+        """
+        y_pred: (batch, future_window) - Predicted float values
+        y_true: (batch, future_window) - Ground truth float values
+        Returns: (batch,) - Reward for each sequence
+        """
+        # Negative MSE as reward (closer is better)
+        mse = torch.mean((y_pred - y_true)**2, dim=1)
+        return -mse
+
+class RLHFLearner(Learner):
+    def __init__(self, model, optim, reward_func, train_loader, cbs, device=None):
+        super().__init__(model, optim, None, train_loader, None, cbs, device)
+        self.reward_func = reward_func
+        
+    def fit_rl(self, num_epochs, future_window, temperature=1.0, baseline_momentum=0.9):
+        """
+        Train using REINFORCE algorithm with dynamic window renormalization
+        """
+        self.model.train()
+        moving_avg_reward = 0.0
+        
+        for epoch in range(num_epochs):
+            self.epoch = epoch
+            epoch_rewards = []
+            
+            for i, (x_batch_tokens, y_future_batch, params_batch, x_batch_float) in enumerate(self.train_loader):
+                self.optim.zero_grad()
+                
+                # Move to device
+                # x_batch_tokens is not strictly needed as we regenerate it, but kept for consistency
+                y_future_batch = y_future_batch.to(self.device)
+                x_batch_float = x_batch_float.to(self.device) # (batch, context_window)
+                
+                batch_size = x_batch_float.size(0)
+                
+                # Storage for log probs and rewards
+                log_probs = []
+                predictions = []
+                
+                # -------------------------------------------------------
+                # 1. Rollout (Generate Trajectory)
+                # -------------------------------------------------------
+                
+                predictions, log_probs = self.predict(x_batch_float, num_periods=future_window, temperature=temperature)
+
+                
+                
+                # -------------------------------------------------------
+                # 2. Compute Reward
+                # -------------------------------------------------------
+                R = self.reward_func(predictions, y_future_batch) # (batch,)
+                
+                # Update baseline
+                if i == 0 and epoch == 0:
+                    moving_avg_reward = R.mean().item()
+                else:
+                    moving_avg_reward = baseline_momentum * moving_avg_reward + (1 - baseline_momentum) * R.mean().item()
+                
+                advantage = R - moving_avg_reward
+                
+                # -------------------------------------------------------
+                # 3. Policy Gradient Loss
+                # -------------------------------------------------------
+                trajectory_log_probs = torch.stack(log_probs, dim=1).sum(dim=1)
+                loss = -torch.mean(trajectory_log_probs * advantage)
+                
+                loss.backward()
+                self.optim.step()
+                
+                epoch_rewards.append(R.mean().item())
+                
+                if i % 10 == 0:
+                    print(f"Epoch {epoch}, Batch {i}, Avg Reward: {R.mean().item():.4f}, Loss: {loss.item():.4f}")
+            
+            print(f"Epoch {epoch} Finished. Mean Reward: {np.mean(epoch_rewards):.4f}")

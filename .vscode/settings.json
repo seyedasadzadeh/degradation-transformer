@@ -1,11 +1,24 @@
 {
+    // ---- Testing ----
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
     "python.testing.pytestArgs": [
         "test"
     ],
-    "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true,
+    // ---- Python interpreter ----
+    // The only setting VS Code needs today
+    "python.defaultInterpreterPath": "/Users/Mohammad/miniconda3/envs/smartchp/bin/python",
+    // Load environment variables from .env
+    "python.envFile": "${workspaceFolder}/.env",
+    // ---- Terminal behavior ----
+    // 1. Ensure the Conda environment is FIRST in PATH
+    "terminal.integrated.env.osx": {
+        "PATH": "/Users/Mohammad/miniconda3/envs/smartchp/bin:${env:PATH}"
+    },
+    // 2. Auto-activate Conda environment in terminal
+    "python.terminal.activateEnvironment": true,
+    // ---- Environment management preferences ----
+    // Tell VS Code you use Conda for envs and packages
     "python-envs.defaultEnvManager": "ms-python.python:conda",
-    "python-envs.defaultPackageManager": "ms-python.python:conda",
-    "python-envs.pythonProjects": [],
-    "python.pythonPath": "/Users/Mohammad/miniconda3/envs/smartchp/bin/python"
+    "python-envs.defaultPackageManager": "ms-python.python:conda"
 }
