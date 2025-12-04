@@ -16,7 +16,7 @@ def predict_and_plot(input_data, num_periods=60):
     input_data = np.array(input_data) # shape context_window or n, context_window
     
     # Run prediction
-    y_predict = learner.predict(input_data, num_periods=num_periods) # shape n, context_window + num_periods
+    y_predict,_ = learner.predict(input_data, num_periods=num_periods) # shape n, context_window + num_periods
     
     # Create plot
     fig, ax = plt.subplots(figsize=(12, 6))
@@ -25,7 +25,7 @@ def predict_and_plot(input_data, num_periods=60):
     ax.plot(range(input_data.shape[-1]), input_data.T, 'b-', label='Original', linewidth=2)
     
     # Plot predicted data (continues from original)
-    ax.plot(range(y_predict.shape[-1]), y_predict.T, 'r--', label='Predicted', linewidth=2)
+    ax.plot(range(input_data.shape[-1],input_data.shape[-1]+y_predict.shape[-1]), y_predict.T, 'r--', label='Predicted', linewidth=2)
     
     # Add vertical line to show where prediction starts
     ax.axvline(x=len(input_data), color='gray', linestyle=':', alpha=0.7)

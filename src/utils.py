@@ -161,10 +161,86 @@ class LinearDegradation(BaseDegradationProcess):
         e = np.random.randn() * self.sigma_e + self.mu_e if self.noise else 0
         return self.c + e
 
+
+def drop_invalid(episodes):
+    #drop invalid values
+    episodes = episodes[~np.isnan(episodes).any(axis=1)]
+    episodes = episodes[(episodes<15).all(axis=1)]
+    episodes = episodes[(episodes>=0).all(axis=1)]
+    return episodes
+
+def generate_episodes_from_all_models(episode_length=100, episodes_per_param=20):
+
+    paris_episodes = np.empty((0, episode_length))
+    for c in np.arange(0.01, .1, .02):
+        for m in np.arange(0.01, 4, .2):
+            paris = ParisLawDegradation(length=episode_length, dim=1, c=c, m=m)
+            episodes_i = paris.generate_episode(x0=np.abs(np.random.randn(episodes_per_param)*0.3+0.7))  # Initial crack lengths in meters
+            paris_episodes = np.concatenate([paris_episodes, episodes_i], axis=0)
+    paris_episodes = drop_invalid(paris_episodes)
+
+
+    lin_episodes = np.empty((0, episode_length))
+    for c in np.linspace(0.01, 0.1, 50):
+        
+        lin = LinearDegradation(length=episode_length, dim=1, c=c, mu_e=0, sigma_e=c/2)
+        episodes_i = lin.generate_episode(x0=np.abs(np.random.randn(episodes_per_param)*0.3+0.7))  # Initial crack lengths in meters
+        lin_episodes = np.concatenate([lin_episodes, episodes_i], axis=0)
+
+    #drop invalid values
+    lin_episodes = drop_invalid(lin_episodes)
+
+    shock_episodes = np.empty((0, episode_length))
+    for mu_t in range(2, 7):
+        for mu_shock in np.linspace(0.1, 0.3, 5):
+            shock = RandomShockDegradation(length=episode_length, dim=1, 
+                                        mu_t=mu_t, sigma_t=mu_t/3, 
+                                        mu_shock=mu_shock, sigma_shock=mu_shock/3, 
+                                        baseline=mu_shock/10)
+            
+            episodes_i = shock.generate_episode(x0=np.abs(np.random.randn(episodes_per_param)*0.3+0.7))  # Initial crack lengths in meters
+            shock_episodes = np.concatenate([shock_episodes, episodes_i], axis=0)
+    #drop invalid values
+    shock_episodes = drop_invalid(shock_episodes)
+
+    sei_episodes = np.empty((0, episode_length))
+    for k in np.linspace(0.01, 2, 100):
+        
+        sei = SEILayer(length=episode_length, dim=1, k=k, sigma_e=1)
+        
+        episodes_i = sei.generate_episode(x0=np.abs(np.random.randn(episodes_per_param)*0.3+0.7))  # Initial crack lengths in meters
+        sei_episodes = np.concatenate([sei_episodes, episodes_i], axis=0)
+    #drop invalid values
+    sei_episodes = drop_invalid(sei_episodes)
+
+    logistic_episodes = np.empty((0, episode_length))
+    for alfa in np.linspace(0.01, .4, 40):
+        
+        logstiff = LogisticStiffness(length=episode_length, dim=1, alfa=alfa, xmax=15, sigma_e=alfa)
+        
+        episodes_i = logstiff.generate_episode(x0=np.abs(np.random.randn(episodes_per_param)*0.3+0.7))  # Initial crack lengths in meters
+        logistic_episodes = np.concatenate([logistic_episodes, episodes_i], axis=0)
+    #drop invalid values
+    logistic_episodes = drop_invalid(logistic_episodes)
+
+    loglogistic_episodes = np.empty((0, episode_length))
+    for beta in np.linspace(0.01, .3, 8):
+        for k in np.linspace(-0.9, .9, 8):
+        
+            logstiff = LogLogisticStiffness(length=episode_length, dim=1, alfa=15, beta=beta, k=k, sigma_e=beta)
+            
+            episodes_i = logstiff.generate_episode(x0=np.abs(np.random.randn(episodes_per_param)*0.3+0.7))  # Initial crack lengths in meters
+            loglogistic_episodes = np.concatenate([loglogistic_episodes, episodes_i], axis=0)
+    #drop invalid values
+    loglogistic_episodes = drop_invalid(loglogistic_episodes)
+
+    episodes = np.concatenate([lin_episodes, shock_episodes, paris_episodes, sei_episodes, logistic_episodes, loglogistic_episodes], axis=0)
+    return episodes
+
 # ----------------------------------------------------------------------------------------------
 # 
 #    
-#------------------------------------------- utils ---------------------------------------------
+#------------------------------------------- Learner ---------------------------------------------
 #
 #
 # ----------------------------------------------------------------------------------------------
@@ -492,7 +568,7 @@ class Learner():
                 logits = self.model(x_dig)  # (batch_size, vocab_size)
                 
                 # Apply temperature
-                if temperature == 0.0:
+                if temperature == 0:
                     # Greedy decoding
                     yhat_token = torch.argmax(logits, dim=-1).unsqueeze(-1)
                     # If gradients are requested (RL), compute the log-prob of the selected token
@@ -575,8 +651,136 @@ class Learner():
         with open(config_filename, 'w') as f:
             json.dump(config, f)
 
+# ----------------------------------------------------------------------------------------------
+# 
+#    
+#------------------------------------------- RLHF Components -----------------------------------
+#
+#
+# ----------------------------------------------------------------------------------------------
 
+class RLDataset(torch.utils.data.Dataset):
+    def __init__(self, data, context_window, future_window, vocab_size):
+        self.data = data
+        self.context_window = context_window
+        self.future_window = future_window
+        self.vocab_size = vocab_size
+        self.n_episodes, self.episode_length = data.shape
+        # We need enough space for context + future
+        self.samples_per_episode = self.episode_length - context_window - future_window
+        self.normalizer = WindowNormalizer()
+        self.digitizer = UniformDigitizer(vocab_size)
 
+    def __len__(self):
+        return self.n_episodes * self.samples_per_episode
+    
+    def __getitem__(self, idx):
+        episode_idx = idx // self.samples_per_episode
+        pos = idx % self.samples_per_episode
+        
+        # Context (Input)
+        x = self.data[episode_idx, pos : pos + self.context_window]
+        
+        # Future Ground Truth (Target)
+        y_future = self.data[episode_idx, pos + self.context_window : pos + self.context_window + self.future_window]
+        
+        # Normalize context
+        x_norm, par = self.normalizer.normalize(x)
+        
+        # Digitize context
+        x_dig = self.digitizer.digitize_np(x_norm)
+        
+        # Return:
+        # 1. Context tokens (for model input)
+        # 2. Future Ground Truth values (for reward calculation)
+        # 3. Normalization params (to denormalize predictions for comparison)
+        # 4. Raw Context Float (for dynamic renormalization during rollout) - used in learner.predict
+        return (torch.tensor(x_dig, dtype=torch.long), 
+                torch.tensor(y_future, dtype=torch.float32),
+                torch.tensor(np.array([par['min'], par['max']]), dtype=torch.float32),
+                torch.tensor(x, dtype=torch.float32))
+
+class MSEReward:
+    def __call__(self, y_pred, y_true):
+        """
+        y_pred: (batch, future_window) - Predicted float values
+        y_true: (batch, future_window) - Ground truth float values
+        Returns: (batch,) - Reward for each sequence
+        """
+        # Negative MSE as reward (closer is better)
+        mse = torch.mean((y_pred - y_true)**2, dim=1)
+        return -mse
+
+class RLHFLearner(Learner):
+    def __init__(self, model, optim, reward_func, train_loader, cbs, device=None):
+        super().__init__(model, optim, None, train_loader, None, cbs, device)
+        self.reward_func = reward_func
+        
+    def fit_rl_reinforce(self, num_epochs, future_window, temperature=1.0, baseline_momentum=0.9):
+        """
+        Train using REINFORCE algorithm with dynamic window renormalization
+        """
+        self.model.train()
+        moving_avg_reward = 0.0
+        
+        for epoch in range(num_epochs):
+            self.epoch = epoch
+            epoch_rewards = []
+            
+            for i, (x_batch_tokens, y_future_batch, params_batch, x_batch_float) in enumerate(self.train_loader):
+                self.optim.zero_grad()
+                
+                # Move to device
+                # x_batch_tokens is not strictly needed as we regenerate it, but kept for consistency
+                y_future_batch = y_future_batch.to(self.device)
+                x_batch_float = x_batch_float.to(self.device) # (batch, context_window)
+                                
+                # Storage for log probs and rewards
+                log_probs = []
+                predictions = []
+                
+                # -------------------------------------------------------
+                # 1. Rollout (Generate Trajectory)
+                # -------------------------------------------------------
+                
+                # Run rollout with gradients enabled for log_probs so policy gradient can flow
+                predictions, log_probs = self.predict(x_batch_float, num_periods=future_window, temperature=temperature, grad=True, return_tensor=True)
+                
+                # -------------------------------------------------------
+                # 2. Compute Reward
+                # -------------------------------------------------------
+                R = self.reward_func(predictions, y_future_batch) # (batch,)
+                
+                # Update baseline
+                if i == 0 and epoch == 0:
+                    moving_avg_reward = R.mean().item()
+                else:
+                    moving_avg_reward = baseline_momentum * moving_avg_reward + (1 - baseline_momentum) * R.mean().item()
+                
+                advantage = R - moving_avg_reward
+                
+                # -------------------------------------------------------
+                # 3. Policy Gradient Loss
+                # -------------------------------------------------------
+                trajectory_log_probs = torch.stack(log_probs, dim=1).sum(dim=1)
+                loss = -torch.mean(trajectory_log_probs * advantage)
+                
+                loss.backward()
+                self.optim.step()
+                
+                epoch_rewards.append(R.mean().item())
+                
+                if i % 10 == 0:
+                    print(f"Epoch {epoch}, Batch {i}, Avg Reward: {R.mean().item():.4f}, Loss: {loss.item():.4f}")
+            
+            print(f"Epoch {epoch} Finished. Mean Reward: {np.mean(epoch_rewards):.4f}")
+# ----------------------------------------------------------------------------------------------
+# 
+#    
+#------------------------------------------- Callbacks ---------------------------------------------
+#
+#
+# ----------------------------------------------------------------------------------------------
 class Callback:
     def __init__(self): pass
     def before_fit(self, learner): pass
@@ -803,128 +1007,4 @@ class MLflowCallback(Callback):
         mlflow.end_run()
     
 
-# ----------------------------------------------------------------------------------------------
-# 
-#    
-#------------------------------------------- RLHF Components -----------------------------------
-#
-#
-# ----------------------------------------------------------------------------------------------
 
-class RLDataset(torch.utils.data.Dataset):
-    def __init__(self, data, context_window, future_window, vocab_size):
-        self.data = data
-        self.context_window = context_window
-        self.future_window = future_window
-        self.vocab_size = vocab_size
-        self.n_episodes, self.episode_length = data.shape
-        # We need enough space for context + future
-        self.samples_per_episode = self.episode_length - context_window - future_window
-        self.normalizer = WindowNormalizer()
-        self.digitizer = UniformDigitizer(vocab_size)
-
-    def __len__(self):
-        return self.n_episodes * self.samples_per_episode
-    
-    def __getitem__(self, idx):
-        episode_idx = idx // self.samples_per_episode
-        pos = idx % self.samples_per_episode
-        
-        # Context (Input)
-        x = self.data[episode_idx, pos : pos + self.context_window]
-        
-        # Future Ground Truth (Target)
-        y_future = self.data[episode_idx, pos + self.context_window : pos + self.context_window + self.future_window]
-        
-        # Normalize context
-        x_norm, par = self.normalizer.normalize(x)
-        
-        # Digitize context
-        x_dig = self.digitizer.digitize_np(x_norm)
-        
-        # Return:
-        # 1. Context tokens (for model input)
-        # 2. Future Ground Truth values (for reward calculation)
-        # 3. Normalization params (to denormalize predictions for comparison)
-        # 4. Raw Context Float (for dynamic renormalization during rollout)
-        return (torch.tensor(x_dig, dtype=torch.long), 
-                torch.tensor(y_future, dtype=torch.float32),
-                torch.tensor(np.array([par['min'], par['max']]), dtype=torch.float32),
-                torch.tensor(x, dtype=torch.float32))
-
-class MSE_Reward:
-    def __call__(self, y_pred, y_true):
-        """
-        y_pred: (batch, future_window) - Predicted float values
-        y_true: (batch, future_window) - Ground truth float values
-        Returns: (batch,) - Reward for each sequence
-        """
-        # Negative MSE as reward (closer is better)
-        mse = torch.mean((y_pred - y_true)**2, dim=1)
-        return -mse
-
-class RLHFLearner(Learner):
-    def __init__(self, model, optim, reward_func, train_loader, cbs, device=None):
-        super().__init__(model, optim, None, train_loader, None, cbs, device)
-        self.reward_func = reward_func
-        
-    def fit_rl(self, num_epochs, future_window, temperature=1.0, baseline_momentum=0.9):
-        """
-        Train using REINFORCE algorithm with dynamic window renormalization
-        """
-        self.model.train()
-        moving_avg_reward = 0.0
-        
-        for epoch in range(num_epochs):
-            self.epoch = epoch
-            epoch_rewards = []
-            
-            for i, (x_batch_tokens, y_future_batch, params_batch, x_batch_float) in enumerate(self.train_loader):
-                self.optim.zero_grad()
-                
-                # Move to device
-                # x_batch_tokens is not strictly needed as we regenerate it, but kept for consistency
-                y_future_batch = y_future_batch.to(self.device)
-                x_batch_float = x_batch_float.to(self.device) # (batch, context_window)
-                
-                batch_size = x_batch_float.size(0)
-                
-                # Storage for log probs and rewards
-                log_probs = []
-                predictions = []
-                
-                # -------------------------------------------------------
-                # 1. Rollout (Generate Trajectory)
-                # -------------------------------------------------------
-                
-                # Run rollout with gradients enabled for log_probs so policy gradient can flow
-                predictions, log_probs = self.predict(x_batch_float, num_periods=future_window, temperature=temperature, grad=True, return_tensor=True)
-                
-                # -------------------------------------------------------
-                # 2. Compute Reward
-                # -------------------------------------------------------
-                R = self.reward_func(predictions, y_future_batch) # (batch,)
-                
-                # Update baseline
-                if i == 0 and epoch == 0:
-                    moving_avg_reward = R.mean().item()
-                else:
-                    moving_avg_reward = baseline_momentum * moving_avg_reward + (1 - baseline_momentum) * R.mean().item()
-                
-                advantage = R - moving_avg_reward
-                
-                # -------------------------------------------------------
-                # 3. Policy Gradient Loss
-                # -------------------------------------------------------
-                trajectory_log_probs = torch.stack(log_probs, dim=1).sum(dim=1)
-                loss = -torch.mean(trajectory_log_probs * advantage)
-                
-                loss.backward()
-                self.optim.step()
-                
-                epoch_rewards.append(R.mean().item())
-                
-                if i % 10 == 0:
-                    print(f"Epoch {epoch}, Batch {i}, Avg Reward: {R.mean().item():.4f}, Loss: {loss.item():.4f}")
-            
-            print(f"Epoch {epoch} Finished. Mean Reward: {np.mean(epoch_rewards):.4f}")
