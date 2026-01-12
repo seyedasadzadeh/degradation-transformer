@@ -33,7 +33,7 @@ def test_normalizer_1d():
 
 def test_load_model_from_safetensors_locally():
     
-    x_batch = np.random.randint(0, 100, size=(2, 10))
+    x_batch = np.random.randint(0, 100, size=(2, 40))
 
     with open("degradation_transformer_model_config.json", "rb") as f:
         model_params=json.load(f)
@@ -48,5 +48,5 @@ def test_load_model_from_safetensors_locally():
     learner = Learner(model, optim=None, loss_func=None, 
                     train_loader=None, test_loader=None, cbs=[])
 
-    y_predict = learner.predict(x_batch, num_periods=10)
-    assert y_predict.shape == (2, 20), "Prediction shape is not correct"
+    y_predict = learner.predict(x_batch, num_periods=30) # it assumes the model has a fixed context_window=40
+    assert y_predict[0].shape == (2, 30), "Prediction shape is not correct"
