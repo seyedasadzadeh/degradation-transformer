@@ -6,9 +6,8 @@ A Deep Learning model for predicting degradation trajectories in time-series dat
 
 You can try out the model directly in your browser on Hugging Face Spaces:
 
-[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/smasadzadeh/degradation-transformer)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces-blue)](https://huggingface.co/spaces/smasadzadeh/degradation-transformer-app)
 
-*(Note: Ensure your Space is public and referencing the correct URL)*
 
 ## 📖 Overview
 
