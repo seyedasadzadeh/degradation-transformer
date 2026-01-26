@@ -33,7 +33,7 @@ def test_normalizer_1d():
 
 def test_load_model_from_safetensors_locally():
     
-    x_batch = np.random.randint(0, 100, size=(2, 40))
+    x_batch = np.random.randint(0, 100, size=(2, 40))# it assumes the model has a fixed context_window=40
 
     with open("degradation_transformer_model_config.json", "rb") as f:
         model_params=json.load(f)

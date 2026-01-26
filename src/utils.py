@@ -1021,9 +1021,11 @@ class ProgressCallback(Callback):
         self.test_losses = []
 
 class SaveModel(Callback):
+    def __init__(self, file_name="degradation_transformer_model.safetensors"):
+        self.file_name = file_name
     def after_fit(self, learner):
         # save model files
-        learner.save_model("degradation_transformer_model.safetensors") # this saves config as well
+        learner.save_model(self.file_name) # this saves config as well
 
 class WandBCallback(Callback):
     def __init__(self, update_freq=50):
