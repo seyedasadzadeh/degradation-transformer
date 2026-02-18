@@ -1,0 +1,1 @@
+{"vocab_size": 1000, "context_window": 40, "embedding_dim": 64, "num_heads": 8, "num_blocks": 3}
