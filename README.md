@@ -59,6 +59,28 @@ docker run -p 7860:7860 degradation-app
 -   **Pre-training**: Check `main.ipynb` for the initial training loop.
 -   **RLHF Fine-tuning**: See `rlhf_training.ipynb` and `RLHF_PLAN.md` for the reinforcement learning implementation details.
 
+### Diverse Synthetic Episodes
+
+The project also includes a richer synthetic degradation generator for training
+with more normalized shape variety:
+
+```python
+from src.utils import degradation_shape_diagnostics, generate_diverse_degradation_episodes
+
+episodes = generate_diverse_degradation_episodes(
+    episode_length=100,
+    n_episodes=5000,
+    seed=42,
+)
+
+print(degradation_shape_diagnostics(episodes))
+```
+
+This generator samples a grammar of degradation behaviors, including power-law,
+exponential, Gompertz, Weibull, saturation, piecewise, threshold, cyclic stress,
+shock/relaxation, gamma-process, Wiener-drift, mixed-mechanism, and structured
+observation effects.
+
 ## 📂 Project Structure
 
 -   `app.py`: The Gradio web application.
