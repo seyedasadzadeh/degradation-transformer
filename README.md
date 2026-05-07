@@ -59,27 +59,38 @@ docker run -p 7860:7860 degradation-app
 -   **Pre-training**: Check `main.ipynb` for the initial training loop.
 -   **RLHF Fine-tuning**: See `rlhf_training.ipynb` and `RLHF_PLAN.md` for the reinforcement learning implementation details.
 
-### Diverse Synthetic Episodes
+### Degradation Corpus
 
-The project also includes a richer synthetic degradation generator for training
-with more normalized shape variety:
+The project includes a structured degradation corpus generator for training with
+more normalized shape variety and richer mechanism metadata:
 
 ```python
-from src.generation import degradation_shape_diagnostics, generate_diverse_degradation_episodes
+from src.generation import (
+    CorpusConfig,
+    corpus_metadata_summary,
+    corpus_diagnostics_report,
+    degradation_shape_diagnostics,
+    generate_degradation_corpus_from_config,
+)
 
-episodes = generate_diverse_degradation_episodes(
+config = CorpusConfig(
     episode_length=100,
     n_episodes=5000,
     seed=42,
+    source_weights={"battery": 0.3, "fatigue": 0.2, "corrosion": 0.2},
 )
 
+episodes, metadata = generate_degradation_corpus_from_config(config)
 print(degradation_shape_diagnostics(episodes))
+print(corpus_metadata_summary(metadata))
+print(corpus_diagnostics_report(episodes, metadata, context_window=60, future_window=60))
 ```
 
-This generator samples a grammar of degradation behaviors, including power-law,
-exponential, Gompertz, Weibull, saturation, piecewise, threshold, cyclic stress,
-shock/relaxation, gamma-process, Wiener-drift, mixed-mechanism, and structured
-observation effects.
+This generator samples from a mechanism registry that currently includes the
+generic shape grammar plus battery capacity fade, fatigue crack growth, creep
+deformation, corrosion pitting, and wear transition. The old
+`generate_diverse_degradation_episodes` wrapper remains available for existing
+notebooks and scripts.
 
 ## 📂 Project Structure
 

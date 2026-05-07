@@ -45,10 +45,13 @@ def test_load_model_from_safetensors_locally():
 
     model = DegradationTransformer(vocab_size=model_params['vocab_size'], 
                                     context_window=model_params['context_window'], 
-                                embedding_dim=model_params['embedding_dim'], 
-                                num_heads=model_params['num_heads'],
+                                    embedding_dim=model_params['embedding_dim'], 
+                                    num_heads=model_params['num_heads'],
                                     num_blocks=model_params['num_blocks'],
-                                    metadata_dim=model_params.get('metadata_dim', 0))
+                                    metadata_dim=model_params.get('metadata_dim', 0),
+                                    pad_token_id=model_params.get('pad_token_id'),
+                                    use_padding=model_params.get('use_padding', False),
+                                    min_context_window=model_params.get('min_context_window'))
     load_model(model, "degradation_transformer_model.safetensors")
     model.eval()
     learner = Learner(model, optim=None, loss_func=None, 

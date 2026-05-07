@@ -15,7 +15,10 @@ def test_embedding():
     embedding_dim=config['embedding_dim'],
     num_heads=config['num_heads'],
     num_blocks=config['num_blocks'],
-    metadata_dim=config.get('metadata_dim', 0)
+    metadata_dim=config.get('metadata_dim', 0),
+    pad_token_id=config.get('pad_token_id'),
+    use_padding=config.get('use_padding', False),
+    min_context_window=config.get('min_context_window'),
 )
 
     # Load Weights

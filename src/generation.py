@@ -1,3 +1,6 @@
+from dataclasses import dataclass
+from typing import Callable
+
 import numpy as np
 
 class BaseDegradationProcess:
@@ -15,7 +18,7 @@ class BaseDegradationProcess:
 
 
 class ParisLawDegradation(BaseDegradationProcess):
-    """
+    r"""
     Paris–Erdogan fatigue crack growth model.
     Paris’ law (fatigue crack growth)
     $dX = C\,(\pi X)^{m/2}\,\sigma^m\,dt$  (or simplified $dX = k X^{m/2}\,dt$)
@@ -32,7 +35,7 @@ class ParisLawDegradation(BaseDegradationProcess):
         return self.c * a ** (self.m/2)
 
 class SEILayer(BaseDegradationProcess):
-    """
+    r"""
     A general class for these degradation mechanisms:
      - SEI layer growth (diffusion-limited)
     $dX = \dfrac{k}{X}\,dt$
@@ -56,7 +59,7 @@ class SEILayer(BaseDegradationProcess):
 
 
 class LogisticStiffness(BaseDegradationProcess):
-    """
+    r"""
     A general class for these degradation mechanisms:
      Stiffness degradation (logistic)
      $dX = -\alpha X\,(1-X/X_{\max})\,dt$
@@ -450,6 +453,377 @@ def _scale_degradation_episode(rng, shape, max_value=15):
     return np.clip(episode, 0, max_value - 1e-5)
 
 
+@dataclass(frozen=True)
+class DegradationMechanism:
+    name: str
+    domain: str
+    generator: Callable
+    weight: float = 1.0
+    source_type: str = "synthetic_mechanistic"
+
+
+@dataclass(frozen=True)
+class CorpusConfig:
+    episode_length: int = 100
+    n_episodes: int = 5000
+    seed: int | None = None
+    max_value: float = 15
+    source_weights: dict | None = None
+    apply_observation_effects: bool = True
+    return_metadata: bool = True
+
+    def to_kwargs(self):
+        return {
+            "episode_length": self.episode_length,
+            "n_episodes": self.n_episodes,
+            "seed": self.seed,
+            "max_value": self.max_value,
+            "source_weights": self.source_weights,
+            "apply_observation_effects": self.apply_observation_effects,
+            "return_metadata": self.return_metadata,
+        }
+
+
+def _metadata(
+    name,
+    domain,
+    observed_variable,
+    mechanism_family,
+    parameters,
+    covariates=None,
+    source_type="synthetic_mechanistic",
+    monotonic_expected=True,
+):
+    return {
+        "mechanism": name,
+        "family": name,
+        "domain": domain,
+        "source_type": source_type,
+        "observed_variable": observed_variable,
+        "mechanism_family": mechanism_family,
+        "parameters": parameters,
+        "covariates": covariates or {},
+        "monotonic_expected": bool(monotonic_expected),
+    }
+
+
+def _shape_grammar_mechanism(rng, episode_length):
+    shape, family = _compose_degradation_shape(rng, episode_length)
+    return shape, _metadata(
+        name="shape_grammar",
+        domain="generic",
+        observed_variable="abstract_degradation",
+        mechanism_family=family,
+        parameters={"composed_family": family},
+        source_type="synthetic_shape_grammar",
+        monotonic_expected=False,
+    )
+
+
+def _battery_capacity_fade_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    temperature_c = float(rng.uniform(15, 45))
+    c_rate = float(rng.uniform(0.2, 2.5))
+    depth_of_discharge = float(rng.uniform(0.2, 1.0))
+    arrhenius = np.exp(0.055 * (temperature_c - 25))
+    calendar = float(rng.uniform(0.05, 0.45)) * np.sqrt(t + 1e-6) * arrhenius
+    cycle = float(rng.uniform(0.05, 0.7)) * np.power(t, float(rng.uniform(0.8, 1.8))) * c_rate * depth_of_discharge
+    knee_location = float(rng.uniform(0.55, 0.9))
+    knee_severity = float(rng.uniform(0.0, 1.5))
+    plating = knee_severity * np.maximum(t - knee_location, 0) ** float(rng.uniform(1.4, 3.5))
+    recovery = float(rng.uniform(0.0, 0.025)) * np.sin(2 * np.pi * rng.uniform(2, 10) * t + rng.uniform(0, 2 * np.pi))
+    shape = calendar + cycle + plating + recovery
+    return _normalize_shape(shape), _metadata(
+        name="battery_capacity_fade",
+        domain="battery",
+        observed_variable="capacity_loss",
+        mechanism_family="calendar_plus_cycle_aging_with_optional_knee",
+        parameters={"knee_location": knee_location, "knee_severity": knee_severity},
+        covariates={"temperature_c": temperature_c, "c_rate": c_rate, "depth_of_discharge": depth_of_discharge},
+    )
+
+
+def _fatigue_crack_growth_mechanism(rng, episode_length):
+    stress = _random_smooth_signal(rng, episode_length, anchors=int(rng.integers(5, 14)))
+    stress = np.clip(0.6 + 0.25 * stress + rng.uniform(0.0, 0.6), 0.05, None)
+    a = np.zeros(episode_length)
+    a[0] = float(rng.uniform(0.02, 0.12))
+    c = float(10 ** rng.uniform(-3.2, -1.2))
+    m = float(rng.uniform(2.0, 4.5))
+    threshold = float(rng.uniform(0.02, 0.18))
+    for i in range(episode_length - 1):
+        delta_k = stress[i] * np.sqrt(max(a[i], 1e-6))
+        growth = c * max(delta_k - threshold, 0) ** m
+        if rng.random() < 0.015:
+            growth += float(rng.uniform(0.002, 0.04))
+        a[i + 1] = a[i] + growth
+    return _normalize_shape(a), _metadata(
+        name="fatigue_crack_growth",
+        domain="fatigue",
+        observed_variable="crack_length",
+        mechanism_family="paris_law_with_variable_amplitude_loading",
+        parameters={"c": c, "m": m, "threshold": threshold},
+        covariates={"stress_mean": float(stress.mean()), "stress_std": float(stress.std())},
+    )
+
+
+def _creep_deformation_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    primary_exp = float(rng.uniform(0.25, 0.7))
+    secondary_rate = float(rng.uniform(0.05, 0.45))
+    tertiary_start = float(rng.uniform(0.55, 0.88))
+    tertiary_power = float(rng.uniform(1.8, 4.5))
+    stress_fraction = float(rng.uniform(0.35, 0.95))
+    temperature_fraction = float(rng.uniform(0.35, 0.95))
+    primary = float(rng.uniform(0.15, 0.6)) * (1 - np.exp(-float(rng.uniform(3, 12)) * t)) ** primary_exp
+    secondary = secondary_rate * t
+    tertiary = float(rng.uniform(0.2, 1.8)) * np.maximum(t - tertiary_start, 0) ** tertiary_power
+    shape = primary + secondary + tertiary
+    return _normalize_shape(shape), _metadata(
+        name="creep_deformation",
+        domain="materials",
+        observed_variable="creep_strain",
+        mechanism_family="primary_secondary_tertiary_creep",
+        parameters={"tertiary_start": tertiary_start, "tertiary_power": tertiary_power},
+        covariates={"stress_fraction": stress_fraction, "temperature_fraction": temperature_fraction},
+    )
+
+
+def _corrosion_pitting_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    humidity = float(rng.uniform(0.35, 1.0))
+    chloride = float(rng.uniform(0.0, 1.0))
+    passivation_strength = float(rng.uniform(0.0, 0.7))
+    uniform = float(rng.uniform(0.02, 0.5)) * humidity * t
+    passivation = passivation_strength * (1 - np.exp(-float(rng.uniform(2, 8)) * t))
+    n_pits = int(rng.integers(1, 8))
+    pit_depth = np.zeros_like(t)
+    for onset in rng.uniform(0.05, 0.9, n_pits):
+        severity = float(rng.uniform(0.03, 0.5)) * (0.4 + chloride)
+        power = float(rng.uniform(0.8, 2.5))
+        pit_depth += severity * np.maximum(t - onset, 0) ** power
+    shape = uniform + pit_depth - 0.15 * passivation
+    return _normalize_shape(np.maximum.accumulate(shape)), _metadata(
+        name="corrosion_pitting",
+        domain="corrosion",
+        observed_variable="max_pit_depth",
+        mechanism_family="uniform_corrosion_plus_stochastic_pit_initiation",
+        parameters={"n_pits": n_pits, "passivation_strength": passivation_strength},
+        covariates={"humidity": humidity, "chloride": chloride},
+    )
+
+
+def _wear_transition_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    load = float(rng.uniform(0.2, 1.0))
+    lubrication_quality = float(rng.uniform(0.0, 1.0))
+    running_in = float(rng.uniform(0.1, 0.7)) * (1 - np.exp(-float(rng.uniform(6, 18)) * t))
+    steady = float(rng.uniform(0.03, 0.5)) * load * t * (1.2 - 0.7 * lubrication_quality)
+    transition = float(rng.uniform(0.45, 0.9))
+    severe = float(rng.uniform(0.0, 1.8)) * np.maximum(t - transition, 0) ** float(rng.uniform(1.4, 3.2))
+    stick_slip = float(rng.uniform(0.0, 0.05)) * np.maximum(0, np.sin(2 * np.pi * rng.uniform(4, 16) * t + rng.uniform(0, 2 * np.pi)))
+    shape = running_in + steady + severe + stick_slip
+    return _normalize_shape(shape), _metadata(
+        name="wear_transition",
+        domain="wear",
+        observed_variable="wear_depth",
+        mechanism_family="running_in_steady_wear_severe_wear_transition",
+        parameters={"transition": transition},
+        covariates={"load": load, "lubrication_quality": lubrication_quality},
+    )
+
+
+def default_degradation_mechanism_registry():
+    return [
+        DegradationMechanism("shape_grammar", "generic", _shape_grammar_mechanism, weight=1.5, source_type="synthetic_shape_grammar"),
+        DegradationMechanism("battery_capacity_fade", "battery", _battery_capacity_fade_mechanism, weight=1.0),
+        DegradationMechanism("fatigue_crack_growth", "fatigue", _fatigue_crack_growth_mechanism, weight=1.0),
+        DegradationMechanism("creep_deformation", "materials", _creep_deformation_mechanism, weight=1.0),
+        DegradationMechanism("corrosion_pitting", "corrosion", _corrosion_pitting_mechanism, weight=1.0),
+        DegradationMechanism("wear_transition", "wear", _wear_transition_mechanism, weight=1.0),
+    ]
+
+
+def _select_mechanism(rng, registry, source_weights=None):
+    names = [m.name for m in registry]
+    weights = np.array([m.weight for m in registry], dtype=np.float64)
+    if source_weights:
+        weights = np.array(
+            [source_weights.get(name, source_weights.get(m.domain, weight)) for name, m, weight in zip(names, registry, weights)],
+            dtype=np.float64,
+        )
+    weights = np.clip(weights, 0, None)
+    if weights.sum() <= 0:
+        raise ValueError("At least one mechanism weight must be positive.")
+    probs = weights / weights.sum()
+    return registry[int(rng.choice(len(registry), p=probs))]
+
+
+def generate_degradation_corpus(
+    episode_length=100,
+    n_episodes=5000,
+    seed=None,
+    max_value=15,
+    mechanisms=None,
+    source_weights=None,
+    apply_observation_effects=True,
+    return_metadata=True,
+):
+    """
+    Generate a structured degradation corpus from a registry of mechanisms.
+
+    Each mechanism returns a normalized latent degradation shape plus metadata
+    describing the domain, observed variable, sampled parameters, and covariates.
+    The corpus generator then applies observation effects and rescales the result
+    into the numeric range used by the downstream digitizer.
+    """
+    rng = np.random.default_rng(seed)
+    registry = mechanisms or default_degradation_mechanism_registry()
+    episodes = []
+    metadata = []
+    attempts = 0
+    max_attempts = int(n_episodes * 25 + 100)
+
+    while len(episodes) < n_episodes and attempts < max_attempts:
+        attempts += 1
+        mechanism = _select_mechanism(rng, registry, source_weights=source_weights)
+        shape, item_metadata = mechanism.generator(rng, episode_length)
+        if shape is None:
+            continue
+        observed = _apply_observation_effects(rng, shape) if apply_observation_effects else _normalize_shape(shape)
+        if observed is None:
+            continue
+        episode = _scale_degradation_episode(rng, observed, max_value=max_value)
+        if np.isfinite(episode).all() and episode.shape == (episode_length,):
+            item_metadata = dict(item_metadata)
+            item_metadata.setdefault("source_type", mechanism.source_type)
+            item_metadata["registry_mechanism"] = mechanism.name
+            item_metadata["registry_domain"] = mechanism.domain
+            item_metadata["episode_length"] = int(episode_length)
+            item_metadata["max_value"] = float(max_value)
+            item_metadata["observation_effects"] = bool(apply_observation_effects)
+            episodes.append(episode.astype(np.float32))
+            metadata.append(item_metadata)
+
+    if len(episodes) < n_episodes:
+        raise RuntimeError(f"Only generated {len(episodes)} valid episodes after {attempts} attempts.")
+
+    episodes = np.stack(episodes, axis=0)
+    if return_metadata:
+        return episodes, metadata
+    return episodes
+
+
+def generate_degradation_corpus_from_config(config, mechanisms=None):
+    return generate_degradation_corpus(**config.to_kwargs(), mechanisms=mechanisms)
+
+
+def corpus_metadata_summary(metadata):
+    summary = {"n_episodes": len(metadata), "mechanisms": {}, "domains": {}, "source_types": {}}
+    for item in metadata:
+        for key, bucket in (("mechanism", "mechanisms"), ("domain", "domains"), ("source_type", "source_types")):
+            value = item.get(key, "unknown")
+            summary[bucket][value] = summary[bucket].get(value, 0) + 1
+    return summary
+
+
+def corpus_composition_table(metadata, key="mechanism"):
+    counts = {}
+    for item in metadata:
+        value = item.get(key, "unknown")
+        counts[value] = counts.get(value, 0) + 1
+
+    total = max(1, len(metadata))
+    rows = [
+        {"value": value, "count": int(count), "fraction": float(count / total)}
+        for value, count in counts.items()
+    ]
+    return sorted(rows, key=lambda row: (-row["count"], row["value"]))
+
+
+def corpus_shape_diagnostics_by_group(
+    episodes,
+    metadata,
+    group_key="mechanism",
+    signature_decimals=2,
+):
+    episodes = np.asarray(episodes)
+    if len(metadata) != episodes.shape[0]:
+        raise ValueError("metadata length must match the number of episodes.")
+
+    groups = {}
+    for idx, item in enumerate(metadata):
+        groups.setdefault(item.get(group_key, "unknown"), []).append(idx)
+
+    diagnostics = {}
+    for group, indices in groups.items():
+        group_episodes = episodes[np.asarray(indices, dtype=int)]
+        group_diagnostics = degradation_shape_diagnostics(
+            group_episodes,
+            signature_decimals=signature_decimals,
+        )
+        group_diagnostics["fraction"] = float(len(indices) / max(1, episodes.shape[0]))
+        diagnostics[group] = group_diagnostics
+    return diagnostics
+
+
+def corpus_window_budget_summary(
+    episode_length,
+    context_window,
+    future_window=1,
+    stride=1,
+    n_episodes=None,
+):
+    trainable_span = int(episode_length) - int(context_window) - int(future_window) + 1
+    windows_per_episode = max(0, (trainable_span + int(stride) - 1) // int(stride))
+    summary = {
+        "episode_length": int(episode_length),
+        "context_window": int(context_window),
+        "future_window": int(future_window),
+        "stride": int(stride),
+        "windows_per_episode": int(windows_per_episode),
+    }
+    if n_episodes is not None:
+        summary["n_episodes"] = int(n_episodes)
+        summary["total_windows"] = int(windows_per_episode * int(n_episodes))
+    return summary
+
+
+def corpus_diagnostics_report(
+    episodes,
+    metadata,
+    group_key="mechanism",
+    signature_decimals=2,
+    context_window=None,
+    future_window=1,
+    stride=1,
+):
+    report = {
+        "overall_shape": degradation_shape_diagnostics(
+            episodes,
+            signature_decimals=signature_decimals,
+        ),
+        "mechanism_table": corpus_composition_table(metadata, key="mechanism"),
+        "domain_table": corpus_composition_table(metadata, key="domain"),
+        "source_type_table": corpus_composition_table(metadata, key="source_type"),
+        "shape_by_group": corpus_shape_diagnostics_by_group(
+            episodes,
+            metadata,
+            group_key=group_key,
+            signature_decimals=signature_decimals,
+        ),
+    }
+    if context_window is not None:
+        report["window_budget"] = corpus_window_budget_summary(
+            episode_length=np.asarray(episodes).shape[1],
+            context_window=context_window,
+            future_window=future_window,
+            stride=stride,
+            n_episodes=np.asarray(episodes).shape[0],
+        )
+    return report
+
+
 def generate_diverse_degradation_episodes(
     episode_length=100,
     n_episodes=5000,
@@ -467,32 +841,13 @@ def generate_diverse_degradation_episodes(
     window normalization, where scale-only parameter sweeps collapse to nearly
     identical examples.
     """
-    rng = np.random.default_rng(seed)
-    episodes = []
-    metadata = []
-    attempts = 0
-    max_attempts = int(n_episodes * 20 + 100)
-
-    while len(episodes) < n_episodes and attempts < max_attempts:
-        attempts += 1
-        shape, family = _compose_degradation_shape(rng, episode_length)
-        if shape is None:
-            continue
-        observed = _apply_observation_effects(rng, shape)
-        if observed is None:
-            continue
-        episode = _scale_degradation_episode(rng, observed, max_value=max_value)
-        if np.isfinite(episode).all() and episode.shape == (episode_length,):
-            episodes.append(episode.astype(np.float32))
-            metadata.append({"family": family})
-
-    if len(episodes) < n_episodes:
-        raise RuntimeError(f"Only generated {len(episodes)} valid episodes after {attempts} attempts.")
-
-    episodes = np.stack(episodes, axis=0)
-    if return_metadata:
-        return episodes, metadata
-    return episodes
+    return generate_degradation_corpus(
+        episode_length=episode_length,
+        n_episodes=n_episodes,
+        seed=seed,
+        max_value=max_value,
+        return_metadata=return_metadata,
+    )
 
 
 def normalized_shape_signatures(episodes, decimals=2):
