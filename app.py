@@ -154,7 +154,7 @@ def build_demo():
             with gr.Row():
                 data_file = gr.File(file_count="single", label="Input .npy file shape=n, context_window")
                 data_text = gr.Text(
-                    label="Input comma-separated numbers (recommended context length: 40)",
+                    label="Input comma-separated numbers (recommended context length: model context window)",
                     placeholder="e.g. 1, 2, 3, ...",
                 )
             with gr.Row():

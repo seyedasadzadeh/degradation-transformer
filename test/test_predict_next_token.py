@@ -90,6 +90,23 @@ def test_dataset_returns_metadata_and_conditioned_model_predicts():
     assert y_predict.shape == (2, 3)
 
 
+def test_predict_returns_only_generated_steps_for_longer_context():
+    model = DegradationTransformer(
+        vocab_size=32,
+        context_window=4,
+        embedding_dim=16,
+        num_heads=4,
+        num_blocks=1,
+        metadata_dim=6,
+    )
+    learner = Learner(model, optim=None, loss_func=None, train_loader=None, test_loader=None, cbs=[], device="cpu")
+    x = np.array([[0, 1, 2, 3, 4, 5]], dtype=np.float32)
+
+    y_predict, _ = learner.predict(x, num_periods=3, temperature=0.0)
+
+    assert y_predict.shape == (1, 3)
+
+
 def test_forecast_metrics_uses_sliding_windows_and_reports_errors():
     class ZeroLearner:
         class Model:

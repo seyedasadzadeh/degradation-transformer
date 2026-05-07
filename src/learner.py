@@ -127,6 +127,7 @@ class Learner():
 
         if len(x.shape) == 1:
             x = x.unsqueeze(0)  # Add batch dimension
+        input_length = x.shape[-1]
         
         import contextlib
         log_probs = []
@@ -202,7 +203,7 @@ class Learner():
                 predicted_y_torch = torch.tensor(predicted_y, dtype=torch.float32, device=self.device)
                 x = torch.cat([x, predicted_y_torch], dim=1)
                 yhat_tokens = torch.cat([yhat_tokens, yhat_token], dim=1)
-        preds_tensor = x[:, self.model.context_window:]
+        preds_tensor = x[:, input_length:]
 
         # Enforce API contract: grad requires tensor outputs to keep autograd
         if grad and not return_tensor:
