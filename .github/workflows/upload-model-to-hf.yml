@@ -5,7 +5,8 @@ on:
     branches: [ master ]
     paths:
       - '*.safetensors'
-      - 'src/utils.py'
+      - '*config.json'
+      - 'src/**'
 
 
 jobs:
@@ -14,7 +15,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
       
       - name: Install huggingface_hub
         run: pip install huggingface_hub
@@ -37,13 +38,14 @@ jobs:
                   repo_id=repo_id
               )
           
-          # Upload utils.py
-          api.upload_file(
-              path_or_fileobj="src/utils.py",
-              path_in_repo="utils.py",
+          # Upload source package
+          api.upload_folder(
+              folder_path="src",
+              path_in_repo="src",
               repo_id=repo_id
           )
-            # Upload all config files
+          
+          # Upload all config files
           for file in glob.glob("*config.json"):
               api.upload_file(
                   path_or_fileobj=file,
