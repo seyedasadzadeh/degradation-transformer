@@ -21,14 +21,16 @@ class LogitDistributionCallback(Callback):
         if learner.epoch % self.sample_freq == 0:
             # Get a test batch
             batch = next(iter(learner.test_loader))
-            x_batch, metadata_batch, y_batch = learner._unpack_supervised_batch(batch)
+            x_batch, metadata_batch, attention_mask, y_batch = learner._unpack_supervised_batch(batch)
             # Move batch to device and get model predictions (logits)
             x_batch = x_batch.to(learner.device)
             if metadata_batch is not None:
                 metadata_batch = metadata_batch.to(learner.device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(learner.device)
             y_batch = y_batch.to(learner.device)
             with torch.no_grad():
-                y_predict = learner.model(x_batch, metadata_batch)
+                y_predict = learner.model(x_batch, metadata_batch, attention_mask=attention_mask)
             # For a few samples, plot logits around the target
             probs = torch.softmax(y_predict, dim=-1)
             probs_cpu = probs.cpu().numpy()

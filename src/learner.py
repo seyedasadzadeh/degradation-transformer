@@ -23,15 +23,17 @@ class Learner():
         self.normalizer = WindowNormalizer()
         self.digitizer = UniformDigitizer(model.vocab_size)
 
-    def train_one_batch(self, x_batch, y_batch, metadata_batch=None):
+    def train_one_batch(self, x_batch, y_batch, metadata_batch=None, attention_mask=None):
         self.optim.zero_grad()
         # Move batch to device
         x_batch = x_batch.to(self.device)
         y_batch = y_batch.to(self.device)
         if metadata_batch is not None:
             metadata_batch = metadata_batch.to(self.device)
+        if attention_mask is not None:
+            attention_mask = attention_mask.to(self.device)
         # Forward pass
-        y_predict = self.model(x_batch, metadata_batch)
+        y_predict = self.model(x_batch, metadata_batch, attention_mask=attention_mask)
         # Compute loss
         loss = self.loss_func(y_predict, y_batch)
         # Backward pass
@@ -40,15 +42,17 @@ class Learner():
         self.optim.step()
         return loss
 
-    def test_one_batch(self, x_batch, y_batch, metadata_batch=None):
+    def test_one_batch(self, x_batch, y_batch, metadata_batch=None, attention_mask=None):
         with torch.no_grad():        
             # Move batch to device
             x_batch = x_batch.to(self.device)
             y_batch = y_batch.to(self.device)
             if metadata_batch is not None:
                 metadata_batch = metadata_batch.to(self.device)
+            if attention_mask is not None:
+                attention_mask = attention_mask.to(self.device)
             # Forward pass
-            y_test_predict = self.model(x_batch, metadata_batch)
+            y_test_predict = self.model(x_batch, metadata_batch, attention_mask=attention_mask)
             # Compute loss
             loss = self.loss_func(y_test_predict, y_batch)
 
@@ -58,11 +62,15 @@ class Learner():
         if len(batch) == 2:
             x_batch, y_batch = batch
             metadata_batch = None
+            attention_mask = None
         elif len(batch) == 3:
             x_batch, metadata_batch, y_batch = batch
+            attention_mask = None
+        elif len(batch) == 4:
+            x_batch, metadata_batch, attention_mask, y_batch = batch
         else:
-            raise ValueError(f"Expected supervised batch with 2 or 3 tensors, got {len(batch)}.")
-        return x_batch, metadata_batch, y_batch
+            raise ValueError(f"Expected supervised batch with 2, 3, or 4 tensors, got {len(batch)}.")
+        return x_batch, metadata_batch, attention_mask, y_batch
 
     def fit(self, num_epochs):
         self.num_epochs = num_epochs
@@ -76,22 +84,22 @@ class Learner():
             
             # train loop
             for i, batch in enumerate(self.train_loader):
-                x_batch, metadata_batch, y_batch = self._unpack_supervised_batch(batch)
+                x_batch, metadata_batch, attention_mask, y_batch = self._unpack_supervised_batch(batch)
                 self.train_idx = i
                 for cb in self.cbs:
                     cb.before_train_batch(self)
-                self.last_train_loss = self.train_one_batch(x_batch, y_batch, metadata_batch)
+                self.last_train_loss = self.train_one_batch(x_batch, y_batch, metadata_batch, attention_mask)
                 self.train_losses.append(self.last_train_loss)
                 for cb in self.cbs:
                     cb.after_train_batch(self)
                
             # test loop
             for i, batch in enumerate(self.test_loader):
-                x_batch, metadata_batch, y_batch = self._unpack_supervised_batch(batch)
+                x_batch, metadata_batch, attention_mask, y_batch = self._unpack_supervised_batch(batch)
                 self.test_idx = i
                 for cb in self.cbs:
                     cb.before_test_batch(self)
-                self.last_test_loss = self.test_one_batch(x_batch, y_batch, metadata_batch)
+                self.last_test_loss = self.test_one_batch(x_batch, y_batch, metadata_batch, attention_mask)
                 self.test_losses.append(self.last_test_loss)
                 for cb in self.cbs:
                     cb.after_test_batch(self)
@@ -128,6 +136,12 @@ class Learner():
         if len(x.shape) == 1:
             x = x.unsqueeze(0)  # Add batch dimension
         input_length = x.shape[-1]
+        min_context_window = getattr(self.model, "min_context_window", None)
+        if min_context_window is not None and input_length < min_context_window:
+            raise ValueError(
+                f"Input context length {input_length} is shorter than the model minimum "
+                f"context length {min_context_window}."
+            )
         
         import contextlib
         log_probs = []
@@ -137,21 +151,42 @@ class Learner():
         with ctx:
             for _ in range(num_periods):
                 x_input = x[:, -self.model.context_window:]
+                real_context_len = x_input.shape[-1]
                 
                 # Normalize (convert to numpy for normalizer)
                 x_np = x_input.cpu().numpy()
                 x_norm, par = self.normalizer.normalize(x_np)
                 metadata = None
                 if getattr(self.model, "metadata_dim", 0) > 0:
-                    metadata = context_metadata(x_np)
+                    metadata_kwargs = {}
+                    if getattr(self.model, "use_padding", False):
+                        metadata_kwargs = {
+                            "context_length": real_context_len,
+                            "max_context_window": self.model.context_window,
+                        }
+                    metadata = context_metadata(x_np, **metadata_kwargs)
                     metadata = torch.tensor(metadata, dtype=torch.float32, device=self.device)
                 
                 # Digitize and back to torch
                 x_dig = self.digitizer.digitize_np(x_norm)
+                attention_mask = None
+                if getattr(self.model, "use_padding", False) and real_context_len < self.model.context_window:
+                    padded = np.full(
+                        (x_dig.shape[0], self.model.context_window),
+                        self.model.pad_token_id,
+                        dtype=np.int64,
+                    )
+                    padded[:, -real_context_len:] = x_dig
+                    attention_mask_np = np.zeros((x_dig.shape[0], self.model.context_window), dtype=np.float32)
+                    attention_mask_np[:, -real_context_len:] = 1.0
+                    x_dig = padded
+                    attention_mask = torch.tensor(attention_mask_np, dtype=torch.float32, device=self.device)
+                elif getattr(self.model, "use_padding", False):
+                    attention_mask = torch.ones(x_dig.shape, dtype=torch.float32, device=self.device)
                 x_dig = torch.tensor(x_dig, dtype=torch.long, device=self.device)
                 
                 # Inference
-                logits = self.model(x_dig, metadata)  # (batch_size, vocab_size)
+                logits = self.model(x_dig, metadata, attention_mask=attention_mask)  # (batch_size, vocab_size)
                 
                 # Apply temperature
                 if temperature == 0:
@@ -239,6 +274,9 @@ class Learner():
             'num_heads': self.model.tbls_list[0].mha.num_heads,
             'num_blocks': len(self.model.tbls_list),
             'metadata_dim': getattr(self.model, 'metadata_dim', 0),
+            'pad_token_id': getattr(self.model, 'pad_token_id', None),
+            'use_padding': getattr(self.model, 'use_padding', False),
+            'min_context_window': getattr(self.model, 'min_context_window', None),
         }
         config_filename = filename.replace('.safetensors', '_config.json')
         with open(config_filename, 'w') as f:

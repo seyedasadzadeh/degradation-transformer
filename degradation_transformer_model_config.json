@@ -1,1 +1,1 @@
-{"vocab_size": 1000, "context_window": 60, "embedding_dim": 64, "num_heads": 8, "num_blocks": 3, "metadata_dim": 6}
+{"vocab_size": 1000, "context_window": 80, "embedding_dim": 64, "num_heads": 8, "num_blocks": 3, "metadata_dim": 7, "pad_token_id": 1000, "use_padding": true, "min_context_window": 30}

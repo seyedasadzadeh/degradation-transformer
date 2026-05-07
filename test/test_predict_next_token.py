@@ -1,11 +1,13 @@
 
 import numpy as np
 import json
+import torch
 
 from src.evaluation import forecast_metrics
 from src.learner import Learner
 from src.model import DegradationTransformer
 from src.preprocessing import TimeSeriesDataset
+from src.preprocessing import VariableContextTimeSeriesDataset
 from src.preprocessing import WindowNormalizer
 from src.preprocessing import context_metadata
 
@@ -66,6 +68,13 @@ def test_context_metadata_values():
     assert np.allclose(metadata[1], expected_second)
 
 
+def test_context_metadata_can_include_context_length_fraction():
+    window = np.array([[1, 2, 4, 7]], dtype=np.float32)
+    metadata = context_metadata(window, context_length=4, max_context_window=10)
+    assert metadata.shape == (1, 7)
+    assert np.isclose(metadata[0, -1], 0.4)
+
+
 def test_dataset_returns_metadata_and_conditioned_model_predicts():
     data = np.stack([
         np.linspace(0, 1, 20),
@@ -105,6 +114,116 @@ def test_predict_returns_only_generated_steps_for_longer_context():
     y_predict, _ = learner.predict(x, num_periods=3, temperature=0.0)
 
     assert y_predict.shape == (1, 3)
+
+
+def test_variable_context_dataset_left_pads_and_masks():
+    data = np.arange(20, dtype=np.float32)[None, :]
+    dataset = VariableContextTimeSeriesDataset(
+        data,
+        max_context_window=8,
+        min_context_window=3,
+        vocab_size=16,
+        preferred_context_windows=[3],
+        seed=1,
+    )
+
+    x_tokens, metadata, attention_mask, y_token = dataset[0]
+
+    assert x_tokens.shape == (8,)
+    assert metadata.shape == (7,)
+    assert attention_mask.shape == (8,)
+    assert y_token.shape == ()
+    assert np.all(x_tokens[:5].numpy() == 16)
+    assert np.all(attention_mask[:5].numpy() == 0)
+    assert np.all(attention_mask[-3:].numpy() == 1)
+    assert np.isclose(metadata[-1].item(), 3 / 8)
+
+
+def test_padding_model_uses_input_only_pad_token_and_mask():
+    model = DegradationTransformer(
+        vocab_size=16,
+        context_window=8,
+        embedding_dim=16,
+        num_heads=4,
+        num_blocks=1,
+        metadata_dim=7,
+        use_padding=True,
+        min_context_window=3,
+    )
+    x = np.array([[16, 16, 16, 16, 16, 1, 2, 3]], dtype=np.int64)
+    mask = np.array([[0, 0, 0, 0, 0, 1, 1, 1]], dtype=np.float32)
+    metadata = np.zeros((1, 7), dtype=np.float32)
+
+    logits = model(
+        torch.tensor(x, dtype=torch.long),
+        torch.tensor(metadata, dtype=torch.float32),
+        attention_mask=torch.tensor(mask, dtype=torch.float32),
+    )
+
+    assert model.tpembed.token_embed.num_embeddings == 17
+    assert logits.shape == (1, 16)
+
+
+def test_learner_trains_and_predicts_with_variable_context_padding():
+    data = np.stack([
+        np.linspace(0, 1, 20),
+        np.linspace(1, 3, 20),
+    ]).astype(np.float32)
+    dataset = VariableContextTimeSeriesDataset(
+        data,
+        max_context_window=8,
+        min_context_window=3,
+        vocab_size=16,
+        seed=2,
+    )
+    loader = torch.utils.data.DataLoader(dataset, batch_size=4)
+    model = DegradationTransformer(
+        vocab_size=16,
+        context_window=8,
+        embedding_dim=16,
+        num_heads=4,
+        num_blocks=1,
+        metadata_dim=7,
+        use_padding=True,
+        min_context_window=3,
+    )
+    learner = Learner(
+        model,
+        optim=torch.optim.Adam(model.parameters(), lr=1e-3),
+        loss_func=torch.nn.CrossEntropyLoss(),
+        train_loader=loader,
+        test_loader=loader,
+        cbs=[],
+        device="cpu",
+    )
+    x_batch, metadata_batch, attention_mask, y_batch = next(iter(loader))
+    loss = learner.train_one_batch(x_batch, y_batch, metadata_batch, attention_mask)
+    y_predict, _ = learner.predict(data[:, :3], num_periods=2, temperature=0.0)
+
+    assert loss.item() > 0
+    assert y_predict.shape == (2, 2)
+
+
+def test_padding_model_enforces_min_context_window():
+    model = DegradationTransformer(
+        vocab_size=16,
+        context_window=8,
+        embedding_dim=16,
+        num_heads=4,
+        num_blocks=1,
+        metadata_dim=7,
+        use_padding=True,
+        min_context_window=3,
+    )
+    learner = Learner(model, optim=None, loss_func=None, train_loader=None, test_loader=None, cbs=[], device="cpu")
+    x = np.array([[0, 1]], dtype=np.float32)
+
+    try:
+        learner.predict(x, num_periods=1, temperature=0.0)
+    except ValueError as e:
+        assert "shorter than the model minimum" in str(e)
+    else:
+        raise AssertionError("Expected a ValueError for too-short context.")
 
 
 def test_forecast_metrics_uses_sliding_windows_and_reports_errors():
