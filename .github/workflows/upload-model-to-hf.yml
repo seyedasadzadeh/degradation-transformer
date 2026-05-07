@@ -1,12 +1,14 @@
 name: Upload Model to HuggingFace
 
 on:
+  workflow_dispatch:
   push:
     branches: [ master ]
     paths:
       - '*.safetensors'
       - '*config.json'
       - 'src/**'
+      - '.github/workflows/upload-model-to-hf.yml'
 
 
 jobs:
