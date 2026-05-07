@@ -2,7 +2,7 @@
 import torch
 import json
 from safetensors.torch import load_model
-from src.utils import DegradationTransformer
+from src.model import DegradationTransformer
 def test_embedding():
     # Load Config
     with open('degradation_transformer_model_config.json', 'r') as f:
@@ -14,7 +14,8 @@ def test_embedding():
     context_window=config['context_window'],
     embedding_dim=config['embedding_dim'],
     num_heads=config['num_heads'],
-    num_blocks=config['num_blocks']
+    num_blocks=config['num_blocks'],
+    metadata_dim=config.get('metadata_dim', 0)
 )
 
     # Load Weights

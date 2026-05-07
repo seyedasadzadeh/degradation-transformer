@@ -1,7 +1,7 @@
 import numpy as np
 
-from src.utils import degradation_shape_diagnostics
-from src.utils import generate_diverse_degradation_episodes
+from src.generation import degradation_shape_diagnostics
+from src.generation import generate_diverse_degradation_episodes
 
 
 def test_generate_diverse_degradation_episodes_shape_and_bounds():

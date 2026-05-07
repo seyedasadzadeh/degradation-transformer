@@ -7,7 +7,8 @@ import numpy as np
 from huggingface_hub import hf_hub_download
 from safetensors.torch import load_model
 
-from src.utils import DegradationTransformer, Learner
+from src.learner import Learner
+from src.model import DegradationTransformer
 
 MODEL_FILENAME = "degradation_transformer_model.safetensors"
 CONFIG_FILENAME = "degradation_transformer_model_config.json"

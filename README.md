@@ -65,7 +65,7 @@ The project also includes a richer synthetic degradation generator for training
 with more normalized shape variety:
 
 ```python
-from src.utils import degradation_shape_diagnostics, generate_diverse_degradation_episodes
+from src.generation import degradation_shape_diagnostics, generate_diverse_degradation_episodes
 
 episodes = generate_diverse_degradation_episodes(
     episode_length=100,
@@ -84,7 +84,13 @@ observation effects.
 ## 📂 Project Structure
 
 -   `app.py`: The Gradio web application.
--   `src/`: Core source code for the model and utilities.
+-   `src/generation.py`: Synthetic degradation processes and diversity diagnostics.
+-   `src/preprocessing.py`: Normalization, digitization, metadata features, and datasets.
+-   `src/model.py`: Transformer architecture.
+-   `src/learner.py`: Supervised training and autoregressive prediction loop.
+-   `src/evaluation.py`: Forecast metrics over sliding context/future windows.
+-   `src/rlhf.py`: RLHF datasets, rewards, and learners.
+-   `src/callbacks.py`: Training callbacks and experiment logging.
 -   `main.ipynb`: Notebook for initial experiments and pre-training.
 -   `rlhf_training.ipynb`: Notebook for RLHF fine-tuning.
 -   `RLHF_PLAN.md`: Detailed plan and theoretical background for the RLHF approach.
