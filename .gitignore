@@ -2,6 +2,14 @@
 wandb/
 mlruns/
 
+# Local raw datasets
+data/raw/
+
+# Generated corpus build reports
+artifacts/corpus_metadata.json
+artifacts/corpus_diagnostics.json
+artifacts/checks/
+
 # Python
 __pycache__/
 *.py[cod]

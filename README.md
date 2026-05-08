@@ -150,6 +150,19 @@ python scripts/prepare_nasa_battery.py \
 The script accepts `.csv` files directly. It can also read NASA PCoE `.mat`
 battery files when `scipy` is installed.
 
+Build the training corpus and optional diagnostics with:
+
+```bash
+python scripts/build_training_corpus.py \
+  --n-synthetic 5000 \
+  --episode-length 100 \
+  --include-nasa-battery \
+  --nasa-path data/processed/nasa_battery_capacity.csv \
+  --output degradation_episodes.npy \
+  --metadata-output artifacts/corpus_metadata.json \
+  --diagnostics-output artifacts/corpus_diagnostics.json
+```
+
 ## 📂 Project Structure
 
 -   `app.py`: The Gradio web application.
@@ -166,6 +179,7 @@ battery files when `scipy` is installed.
 -   `rlhf_training.ipynb`: Notebook for RLHF fine-tuning.
 -   `RLHF_PLAN.md`: Detailed plan and theoretical background for the RLHF approach.
 -   `scripts/prepare_nasa_battery.py`: Prepare local NASA battery capacity data.
+-   `scripts/build_training_corpus.py`: Build synthetic/real training corpora and diagnostics.
 
 ## 🤝 Contributing
 
