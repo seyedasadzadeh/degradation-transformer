@@ -104,6 +104,7 @@ format and combined with synthetic corpora:
 
 ```python
 from src.ingestion import CSVDatasetSource, combine_degradation_corpora
+from src.real_datasets import NASABatteryCapacitySource
 
 real_source = CSVDatasetSource(
     name="nasa_battery_local",
@@ -126,11 +127,35 @@ episodes, metadata = combine_degradation_corpora(
 )
 ```
 
+For a processed NASA battery capacity file with columns
+`cell_id,cycle,capacity`, use the named source:
+
+```python
+nasa_source = NASABatteryCapacitySource(
+    path="data/processed/nasa_battery_capacity.csv",
+    episode_length=100,
+)
+
+nasa_episodes, nasa_metadata = nasa_source.load()
+```
+
+Raw or semi-processed NASA files can be standardized with:
+
+```bash
+python scripts/prepare_nasa_battery.py \
+  --raw-dir data/raw/nasa_battery \
+  --output data/processed/nasa_battery_capacity.csv
+```
+
+The script accepts `.csv` files directly. It can also read NASA PCoE `.mat`
+battery files when `scipy` is installed.
+
 ## 📂 Project Structure
 
 -   `app.py`: The Gradio web application.
 -   `src/generation.py`: Synthetic degradation processes and diversity diagnostics.
 -   `src/ingestion.py`: Real/local degradation dataset ingestion and corpus mixing.
+-   `src/real_datasets.py`: Named adapters for known public degradation datasets.
 -   `src/preprocessing.py`: Normalization, digitization, metadata features, and datasets.
 -   `src/model.py`: Transformer architecture.
 -   `src/learner.py`: Supervised training and autoregressive prediction loop.
@@ -140,6 +165,7 @@ episodes, metadata = combine_degradation_corpora(
 -   `main.ipynb`: Notebook for initial experiments and pre-training.
 -   `rlhf_training.ipynb`: Notebook for RLHF fine-tuning.
 -   `RLHF_PLAN.md`: Detailed plan and theoretical background for the RLHF approach.
+-   `scripts/prepare_nasa_battery.py`: Prepare local NASA battery capacity data.
 
 ## 🤝 Contributing
 
