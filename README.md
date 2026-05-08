@@ -69,6 +69,7 @@ from src.generation import (
     CorpusConfig,
     corpus_metadata_summary,
     corpus_diagnostics_report,
+    degradation_mechanism_family_tree,
     degradation_shape_diagnostics,
     generate_degradation_corpus_from_config,
 )
@@ -83,12 +84,16 @@ config = CorpusConfig(
 episodes, metadata = generate_degradation_corpus_from_config(config)
 print(degradation_shape_diagnostics(episodes))
 print(corpus_metadata_summary(metadata))
+print(degradation_mechanism_family_tree())
 print(corpus_diagnostics_report(episodes, metadata, context_window=60, future_window=60))
 ```
 
-This generator samples from a mechanism registry that currently includes the
-generic shape grammar plus battery capacity fade, fatigue crack growth, creep
-deformation, corrosion pitting, and wear transition. The old
+This generator samples from a mechanism registry with a growing family tree:
+battery SEI growth, cycle aging, lithium-plating knees, and mixed capacity fade;
+fatigue crack growth, threshold incubation, and overload retardation; creep
+deformation and rupture acceleration; corrosion pitting, uniform corrosion, and
+passivation/repassivation; and wear transitions, abrasive wear, and lubrication
+failure. The old
 `generate_diverse_degradation_episodes` wrapper remains available for existing
 notebooks and scripts.
 

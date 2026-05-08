@@ -6,6 +6,7 @@ from src.generation import corpus_diagnostics_report
 from src.generation import corpus_metadata_summary
 from src.generation import corpus_window_budget_summary
 from src.generation import default_degradation_mechanism_registry
+from src.generation import degradation_mechanism_family_tree
 from src.generation import degradation_shape_diagnostics
 from src.generation import generate_degradation_corpus
 from src.generation import generate_degradation_corpus_from_config
@@ -61,6 +62,7 @@ def test_degradation_corpus_returns_structured_metadata():
         "source_type",
         "observed_variable",
         "mechanism_family",
+        "parent_mechanism",
         "parameters",
         "covariates",
         "monotonic_expected",
@@ -97,6 +99,45 @@ def test_degradation_corpus_source_weights_can_force_a_mechanism():
     assert {item["mechanism"] for item in metadata} == {"battery_capacity_fade"}
     assert {item["domain"] for item in metadata} == {"battery"}
     assert all(item["observed_variable"] == "capacity_loss" for item in metadata)
+
+
+def test_default_registry_exposes_richer_mechanism_family_tree():
+    tree = degradation_mechanism_family_tree()
+
+    assert "battery_sei_growth" in tree["battery"]
+    assert "battery_cycle_aging" in tree["battery"]
+    assert "battery_lithium_plating_knee" in tree["battery"]
+    assert "fatigue_threshold_incubation" in tree["fatigue"]
+    assert "fatigue_overload_retardation" in tree["fatigue"]
+    assert "corrosion_uniform" in tree["corrosion"]
+    assert "corrosion_passivation_repassivation" in tree["corrosion"]
+    assert "wear_abrasive" in tree["wear"]
+    assert "wear_lubrication_failure" in tree["wear"]
+
+
+def test_domain_source_weight_allocates_across_domain_family():
+    episodes, metadata = generate_degradation_corpus(
+        episode_length=64,
+        n_episodes=32,
+        seed=17,
+        source_weights={
+            "shape_grammar": 0.0,
+            "battery": 1.0,
+            "fatigue": 0.0,
+            "materials": 0.0,
+            "corrosion": 0.0,
+            "wear": 0.0,
+        },
+        apply_observation_effects=False,
+        return_metadata=True,
+    )
+
+    mechanisms = {item["mechanism"] for item in metadata}
+
+    assert episodes.shape == (32, 64)
+    assert {item["domain"] for item in metadata} == {"battery"}
+    assert len(mechanisms) >= 2
+    assert all(item["parent_mechanism"].startswith("battery") for item in metadata)
 
 
 def test_corpus_config_generates_corpus():

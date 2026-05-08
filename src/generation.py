@@ -493,6 +493,7 @@ def _metadata(
     covariates=None,
     source_type="synthetic_mechanistic",
     monotonic_expected=True,
+    parent_mechanism=None,
 ):
     return {
         "mechanism": name,
@@ -501,6 +502,7 @@ def _metadata(
         "source_type": source_type,
         "observed_variable": observed_variable,
         "mechanism_family": mechanism_family,
+        "parent_mechanism": parent_mechanism or domain,
         "parameters": parameters,
         "covariates": covariates or {},
         "monotonic_expected": bool(monotonic_expected),
@@ -540,6 +542,67 @@ def _battery_capacity_fade_mechanism(rng, episode_length):
         mechanism_family="calendar_plus_cycle_aging_with_optional_knee",
         parameters={"knee_location": knee_location, "knee_severity": knee_severity},
         covariates={"temperature_c": temperature_c, "c_rate": c_rate, "depth_of_discharge": depth_of_discharge},
+        parent_mechanism="battery_mixed_capacity_fade",
+    )
+
+
+def _battery_sei_growth_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    temperature_c = float(rng.uniform(10, 45))
+    soc_mean = float(rng.uniform(0.2, 0.95))
+    arrhenius = np.exp(0.045 * (temperature_c - 25))
+    diffusion = float(rng.uniform(0.4, 1.4)) * np.sqrt(t + 1e-6)
+    electrolyte_decay = float(rng.uniform(0.0, 0.25)) * np.log1p(float(rng.uniform(2, 12)) * t)
+    shape = arrhenius * (0.5 + soc_mean) * (diffusion + electrolyte_decay)
+    return _normalize_shape(shape), _metadata(
+        name="battery_sei_growth",
+        domain="battery",
+        observed_variable="capacity_loss",
+        mechanism_family="diffusion_limited_sei_growth",
+        parameters={"diffusion_exponent": 0.5, "electrolyte_decay_weight": electrolyte_decay[-1]},
+        covariates={"temperature_c": temperature_c, "soc_mean": soc_mean},
+        parent_mechanism="battery_capacity_fade",
+    )
+
+
+def _battery_cycle_aging_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    c_rate = float(rng.uniform(0.2, 3.0))
+    depth_of_discharge = float(rng.uniform(0.15, 1.0))
+    cycle_exponent = float(rng.uniform(0.75, 1.8))
+    throughput = np.power(t, cycle_exponent)
+    stress = (0.4 + depth_of_discharge) * (0.6 + c_rate ** float(rng.uniform(0.6, 1.3)))
+    rest_recovery = float(rng.uniform(0.0, 0.035)) * np.sin(2 * np.pi * rng.uniform(2, 8) * t + rng.uniform(0, 2 * np.pi))
+    shape = stress * throughput + rest_recovery
+    return _normalize_shape(shape), _metadata(
+        name="battery_cycle_aging",
+        domain="battery",
+        observed_variable="capacity_loss",
+        mechanism_family="cycle_throughput_aging",
+        parameters={"cycle_exponent": cycle_exponent},
+        covariates={"c_rate": c_rate, "depth_of_discharge": depth_of_discharge},
+        parent_mechanism="battery_capacity_fade",
+    )
+
+
+def _battery_lithium_plating_knee_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    temperature_c = float(rng.uniform(-5, 25))
+    charge_c_rate = float(rng.uniform(0.8, 4.0))
+    knee_location = float(rng.uniform(0.35, 0.85))
+    pre_slope = float(rng.uniform(0.01, 0.16)) * t
+    plating_power = float(rng.uniform(1.7, 4.2))
+    plating = float(rng.uniform(0.6, 2.2)) * np.maximum(t - knee_location, 0) ** plating_power
+    low_temp_stress = np.exp(float(rng.uniform(0.015, 0.055)) * (25 - temperature_c))
+    shape = pre_slope + low_temp_stress * charge_c_rate * plating
+    return _normalize_shape(shape), _metadata(
+        name="battery_lithium_plating_knee",
+        domain="battery",
+        observed_variable="capacity_loss",
+        mechanism_family="low_temperature_fast_charge_plating_knee",
+        parameters={"knee_location": knee_location, "plating_power": plating_power},
+        covariates={"temperature_c": temperature_c, "charge_c_rate": charge_c_rate},
+        parent_mechanism="battery_capacity_fade",
     )
 
 
@@ -564,6 +627,45 @@ def _fatigue_crack_growth_mechanism(rng, episode_length):
         mechanism_family="paris_law_with_variable_amplitude_loading",
         parameters={"c": c, "m": m, "threshold": threshold},
         covariates={"stress_mean": float(stress.mean()), "stress_std": float(stress.std())},
+        parent_mechanism="fatigue_crack_growth",
+    )
+
+
+def _fatigue_threshold_incubation_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    initiation = float(rng.uniform(0.2, 0.75))
+    subcritical_slope = float(rng.uniform(0.0, 0.05)) * t
+    post_power = float(rng.uniform(1.1, 3.2))
+    post_growth = float(rng.uniform(0.5, 2.0)) * np.maximum(t - initiation, 0) ** post_power
+    load_ratio = float(rng.uniform(0.05, 0.8))
+    shape = subcritical_slope + (0.5 + load_ratio) * post_growth
+    return _normalize_shape(shape), _metadata(
+        name="fatigue_threshold_incubation",
+        domain="fatigue",
+        observed_variable="crack_length",
+        mechanism_family="threshold_then_crack_initiation",
+        parameters={"initiation": initiation, "post_power": post_power},
+        covariates={"load_ratio": load_ratio},
+        parent_mechanism="fatigue_crack_growth",
+    )
+
+
+def _fatigue_overload_retardation_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    base_rate = float(rng.uniform(0.02, 0.18)) * np.exp(float(rng.uniform(0.8, 2.6)) * t)
+    overload_time = float(rng.uniform(0.25, 0.75))
+    overload_jump = float(rng.uniform(0.04, 0.18)) * (t >= overload_time)
+    retardation = 1 - float(rng.uniform(0.3, 0.85)) * np.exp(-float(rng.uniform(8, 30)) * np.maximum(t - overload_time, 0))
+    rate = np.maximum(base_rate * np.where(t >= overload_time, retardation, 1.0), 1e-6)
+    shape = np.cumsum(rate) + overload_jump
+    return _normalize_shape(shape), _metadata(
+        name="fatigue_overload_retardation",
+        domain="fatigue",
+        observed_variable="crack_length",
+        mechanism_family="overload_jump_with_growth_retardation",
+        parameters={"overload_time": overload_time},
+        covariates={"retardation_strength": float(1 - retardation[-1])},
+        parent_mechanism="fatigue_crack_growth",
     )
 
 
@@ -586,6 +688,30 @@ def _creep_deformation_mechanism(rng, episode_length):
         mechanism_family="primary_secondary_tertiary_creep",
         parameters={"tertiary_start": tertiary_start, "tertiary_power": tertiary_power},
         covariates={"stress_fraction": stress_fraction, "temperature_fraction": temperature_fraction},
+        parent_mechanism="creep_deformation",
+    )
+
+
+def _creep_power_law_rupture_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    stress_fraction = float(rng.uniform(0.45, 0.98))
+    temperature_fraction = float(rng.uniform(0.45, 0.98))
+    norton_n = float(rng.uniform(2.5, 8.0))
+    base_rate = float(rng.uniform(0.005, 0.08)) * stress_fraction ** norton_n
+    damage = np.zeros(episode_length)
+    damage[0] = float(rng.uniform(0.0, 0.03))
+    rupture_sensitivity = float(rng.uniform(1.5, 5.0))
+    for i in range(episode_length - 1):
+        acceleration = 1.0 / max(1e-3, (1 - damage[i])) ** rupture_sensitivity
+        damage[i + 1] = min(0.999, damage[i] + base_rate * (0.6 + temperature_fraction) * acceleration)
+    return _normalize_shape(damage), _metadata(
+        name="creep_power_law_rupture",
+        domain="materials",
+        observed_variable="creep_damage",
+        mechanism_family="norton_power_law_damage_acceleration",
+        parameters={"norton_n": norton_n, "rupture_sensitivity": rupture_sensitivity},
+        covariates={"stress_fraction": stress_fraction, "temperature_fraction": temperature_fraction},
+        parent_mechanism="creep_deformation",
     )
 
 
@@ -610,6 +736,49 @@ def _corrosion_pitting_mechanism(rng, episode_length):
         mechanism_family="uniform_corrosion_plus_stochastic_pit_initiation",
         parameters={"n_pits": n_pits, "passivation_strength": passivation_strength},
         covariates={"humidity": humidity, "chloride": chloride},
+        parent_mechanism="corrosion_damage",
+    )
+
+
+def _corrosion_uniform_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    humidity = float(rng.uniform(0.25, 1.0))
+    ph = float(rng.uniform(3.0, 9.5))
+    temperature_c = float(rng.uniform(5, 55))
+    ph_stress = 1 + max(0.0, 7.0 - ph) * 0.15
+    arrhenius = np.exp(0.035 * (temperature_c - 25))
+    rate_drift = 1 + float(rng.uniform(-0.35, 0.8)) * t
+    shape = np.cumsum(np.maximum(1e-6, humidity * ph_stress * arrhenius * rate_drift))
+    return _normalize_shape(shape), _metadata(
+        name="corrosion_uniform",
+        domain="corrosion",
+        observed_variable="thickness_loss",
+        mechanism_family="environment_driven_uniform_corrosion",
+        parameters={"ph_stress": ph_stress},
+        covariates={"humidity": humidity, "ph": ph, "temperature_c": temperature_c},
+        parent_mechanism="corrosion_damage",
+    )
+
+
+def _corrosion_passivation_repassivation_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    chloride = float(rng.uniform(0.15, 1.0))
+    baseline = float(rng.uniform(0.01, 0.12)) * t
+    damage = baseline.copy()
+    n_breakdowns = int(rng.integers(2, 7))
+    for onset in rng.uniform(0.08, 0.9, n_breakdowns):
+        burst = float(rng.uniform(0.04, 0.28)) * chloride * (t >= onset)
+        repassivation_rate = float(rng.uniform(6, 25))
+        tail = burst * np.exp(-repassivation_rate * np.maximum(t - onset, 0))
+        damage = damage + tail
+    return _normalize_shape(np.maximum.accumulate(damage)), _metadata(
+        name="corrosion_passivation_repassivation",
+        domain="corrosion",
+        observed_variable="localized_corrosion_depth",
+        mechanism_family="passive_film_breakdown_and_repassivation",
+        parameters={"n_breakdowns": n_breakdowns},
+        covariates={"chloride": chloride},
+        parent_mechanism="corrosion_damage",
     )
 
 
@@ -630,28 +799,102 @@ def _wear_transition_mechanism(rng, episode_length):
         mechanism_family="running_in_steady_wear_severe_wear_transition",
         parameters={"transition": transition},
         covariates={"load": load, "lubrication_quality": lubrication_quality},
+        parent_mechanism="wear_damage",
+    )
+
+
+def _wear_abrasive_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    load = float(rng.uniform(0.25, 1.0))
+    particle_concentration = float(rng.uniform(0.0, 1.0))
+    hardness_ratio = float(rng.uniform(0.2, 1.2))
+    base = float(rng.uniform(0.03, 0.35)) * load * (0.5 + particle_concentration) * t
+    groove_events = np.zeros_like(t)
+    for onset in rng.uniform(0.05, 0.95, int(rng.integers(1, 6))):
+        groove_events += float(rng.uniform(0.01, 0.12)) * (t >= onset)
+    shape = base * (1 + hardness_ratio) + groove_events
+    return _normalize_shape(shape), _metadata(
+        name="wear_abrasive",
+        domain="wear",
+        observed_variable="wear_depth",
+        mechanism_family="abrasive_wear_with_groove_events",
+        parameters={"hardness_ratio": hardness_ratio},
+        covariates={"load": load, "particle_concentration": particle_concentration},
+        parent_mechanism="wear_damage",
+    )
+
+
+def _wear_lubrication_failure_mechanism(rng, episode_length):
+    t = np.linspace(0, 1, episode_length)
+    load = float(rng.uniform(0.2, 1.0))
+    lubrication_quality = float(rng.uniform(0.05, 0.9))
+    film_failure_time = float(rng.uniform(0.35, 0.85))
+    mild = float(rng.uniform(0.01, 0.12)) * t * lubrication_quality
+    severe = float(rng.uniform(0.4, 2.2)) * load * np.maximum(t - film_failure_time, 0) ** float(rng.uniform(1.0, 2.7))
+    stick_slip = float(rng.uniform(0.0, 0.04)) * np.maximum(0, np.sin(2 * np.pi * rng.uniform(6, 20) * t))
+    shape = mild + severe + stick_slip
+    return _normalize_shape(shape), _metadata(
+        name="wear_lubrication_failure",
+        domain="wear",
+        observed_variable="wear_depth",
+        mechanism_family="mild_wear_to_lubrication_failure",
+        parameters={"film_failure_time": film_failure_time},
+        covariates={"load": load, "lubrication_quality": lubrication_quality},
+        parent_mechanism="wear_damage",
     )
 
 
 def default_degradation_mechanism_registry():
     return [
         DegradationMechanism("shape_grammar", "generic", _shape_grammar_mechanism, weight=1.5, source_type="synthetic_shape_grammar"),
-        DegradationMechanism("battery_capacity_fade", "battery", _battery_capacity_fade_mechanism, weight=1.0),
-        DegradationMechanism("fatigue_crack_growth", "fatigue", _fatigue_crack_growth_mechanism, weight=1.0),
-        DegradationMechanism("creep_deformation", "materials", _creep_deformation_mechanism, weight=1.0),
-        DegradationMechanism("corrosion_pitting", "corrosion", _corrosion_pitting_mechanism, weight=1.0),
-        DegradationMechanism("wear_transition", "wear", _wear_transition_mechanism, weight=1.0),
+        DegradationMechanism("battery_capacity_fade", "battery", _battery_capacity_fade_mechanism, weight=0.7),
+        DegradationMechanism("battery_sei_growth", "battery", _battery_sei_growth_mechanism, weight=0.8),
+        DegradationMechanism("battery_cycle_aging", "battery", _battery_cycle_aging_mechanism, weight=0.8),
+        DegradationMechanism("battery_lithium_plating_knee", "battery", _battery_lithium_plating_knee_mechanism, weight=0.7),
+        DegradationMechanism("fatigue_crack_growth", "fatigue", _fatigue_crack_growth_mechanism, weight=0.8),
+        DegradationMechanism("fatigue_threshold_incubation", "fatigue", _fatigue_threshold_incubation_mechanism, weight=0.7),
+        DegradationMechanism("fatigue_overload_retardation", "fatigue", _fatigue_overload_retardation_mechanism, weight=0.6),
+        DegradationMechanism("creep_deformation", "materials", _creep_deformation_mechanism, weight=0.8),
+        DegradationMechanism("creep_power_law_rupture", "materials", _creep_power_law_rupture_mechanism, weight=0.7),
+        DegradationMechanism("corrosion_pitting", "corrosion", _corrosion_pitting_mechanism, weight=0.8),
+        DegradationMechanism("corrosion_uniform", "corrosion", _corrosion_uniform_mechanism, weight=0.6),
+        DegradationMechanism("corrosion_passivation_repassivation", "corrosion", _corrosion_passivation_repassivation_mechanism, weight=0.7),
+        DegradationMechanism("wear_transition", "wear", _wear_transition_mechanism, weight=0.8),
+        DegradationMechanism("wear_abrasive", "wear", _wear_abrasive_mechanism, weight=0.6),
+        DegradationMechanism("wear_lubrication_failure", "wear", _wear_lubrication_failure_mechanism, weight=0.7),
     ]
 
 
-def _select_mechanism(rng, registry, source_weights=None):
-    names = [m.name for m in registry]
+def degradation_mechanism_family_tree(mechanisms=None):
+    tree = {}
+    for mechanism in mechanisms or default_degradation_mechanism_registry():
+        tree.setdefault(mechanism.domain, []).append(mechanism.name)
+    return {domain: sorted(names) for domain, names in sorted(tree.items())}
+
+
+def _registry_weights(registry, source_weights=None):
     weights = np.array([m.weight for m in registry], dtype=np.float64)
-    if source_weights:
-        weights = np.array(
-            [source_weights.get(name, source_weights.get(m.domain, weight)) for name, m, weight in zip(names, registry, weights)],
-            dtype=np.float64,
-        )
+    if not source_weights:
+        return weights
+
+    domain_weight_totals = {}
+    for mechanism in registry:
+        domain_weight_totals[mechanism.domain] = domain_weight_totals.get(mechanism.domain, 0.0) + mechanism.weight
+
+    adjusted = []
+    for mechanism, default_weight in zip(registry, weights):
+        if mechanism.name in source_weights:
+            adjusted.append(source_weights[mechanism.name])
+        elif mechanism.domain in source_weights:
+            domain_total = max(domain_weight_totals[mechanism.domain], 1e-12)
+            adjusted.append(source_weights[mechanism.domain] * mechanism.weight / domain_total)
+        else:
+            adjusted.append(default_weight)
+    return np.array(adjusted, dtype=np.float64)
+
+
+def _select_mechanism(rng, registry, source_weights=None):
+    weights = _registry_weights(registry, source_weights=source_weights)
     weights = np.clip(weights, 0, None)
     if weights.sum() <= 0:
         raise ValueError("At least one mechanism weight must be positive.")
