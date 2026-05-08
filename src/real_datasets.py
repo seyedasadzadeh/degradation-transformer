@@ -62,3 +62,34 @@ class CMAPSSTurbofanHealthSource(CSVDatasetSource):
                 "value_column": self.value_column,
             }
         return episodes, metadata
+
+
+@dataclass(frozen=True)
+class CMAPSSTurbofanSensorSource(CSVDatasetSource):
+    path: str | Path = ""
+    name: str = "cmapss_fd001_sensor_degradation"
+    domain: str = "turbofan"
+    observed_variable: str = "sensor_degradation"
+    mechanism_family: str = "sensor_composite_turbofan_degradation"
+    parent_mechanism: str | None = "turbofan_degradation"
+    source_type: str = "real_simulated"
+    direction: str = "increasing"
+    value_column: str | None = "sensor_degradation"
+    id_column: str | None = "engine_id"
+    time_column: str | None = "cycle"
+    episode_length: int | None = 100
+    dataset_url: str = "https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data"
+    citation: str = "NASA C-MAPSS Jet Engine Simulated Data"
+
+    def load(self):
+        episodes, metadata = super().load()
+        for item in metadata:
+            item["dataset_url"] = self.dataset_url
+            item["citation"] = self.citation
+            item["raw_schema"] = {
+                "id_column": self.id_column,
+                "time_column": self.time_column,
+                "value_column": self.value_column,
+            }
+            item["monotonic_expected"] = False
+        return episodes, metadata

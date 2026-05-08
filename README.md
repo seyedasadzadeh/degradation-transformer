@@ -159,6 +159,17 @@ python scripts/prepare_cmapss.py \
   --dataset-id FD001
 ```
 
+For a richer C-MAPSS signal built from sensor drift instead of the linear RUL
+label, use:
+
+```bash
+python scripts/prepare_cmapss.py \
+  --train-path data/raw/cmapss/train_FD001.txt \
+  --output data/processed/cmapss_fd001_sensor_degradation.csv \
+  --dataset-id FD001 \
+  --signal sensor_degradation
+```
+
 Build the training corpus and optional diagnostics with:
 
 ```bash
@@ -169,6 +180,8 @@ python scripts/build_training_corpus.py \
   --nasa-path data/processed/nasa_battery_capacity.csv \
   --include-cmapss-fd001 \
   --cmapss-path data/processed/cmapss_fd001_health.csv \
+  --include-cmapss-fd001-sensors \
+  --cmapss-sensor-path data/processed/cmapss_fd001_sensor_degradation.csv \
   --output degradation_episodes.npy \
   --metadata-output artifacts/corpus_metadata.json \
   --diagnostics-output artifacts/corpus_diagnostics.json
@@ -190,7 +203,7 @@ python scripts/build_training_corpus.py \
 -   `rlhf_training.ipynb`: Notebook for RLHF fine-tuning.
 -   `RLHF_PLAN.md`: Detailed plan and theoretical background for the RLHF approach.
 -   `scripts/prepare_nasa_battery.py`: Prepare local NASA battery capacity data.
--   `scripts/prepare_cmapss.py`: Prepare local C-MAPSS turbofan health-index data.
+-   `scripts/prepare_cmapss.py`: Prepare local C-MAPSS turbofan health-index and sensor-degradation data.
 -   `scripts/build_training_corpus.py`: Build synthetic/real training corpora and diagnostics.
 
 ## 🤝 Contributing

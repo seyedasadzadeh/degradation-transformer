@@ -21,11 +21,13 @@ from src.generation import corpus_diagnostics_report
 from src.generation import generate_degradation_corpus_from_config
 from src.ingestion import combine_degradation_corpora
 from src.real_datasets import CMAPSSTurbofanHealthSource
+from src.real_datasets import CMAPSSTurbofanSensorSource
 from src.real_datasets import NASABatteryCapacitySource
 
 
 DEFAULT_NASA_PATH = Path("data/processed/nasa_battery_capacity.csv")
 DEFAULT_CMAPSS_PATH = Path("data/processed/cmapss_fd001_health.csv")
+DEFAULT_CMAPSS_SENSOR_PATH = Path("data/processed/cmapss_fd001_sensor_degradation.csv")
 
 
 def _parse_source_weights(items):
@@ -71,6 +73,8 @@ def build_training_corpus(
     nasa_path=DEFAULT_NASA_PATH,
     include_cmapss_fd001=False,
     cmapss_path=DEFAULT_CMAPSS_PATH,
+    include_cmapss_fd001_sensors=False,
+    cmapss_sensor_path=DEFAULT_CMAPSS_SENSOR_PATH,
     output_path=Path("degradation_episodes.npy"),
     metadata_path=Path("artifacts/corpus_metadata.json"),
     diagnostics_path=Path("artifacts/corpus_diagnostics.json"),
@@ -120,6 +124,21 @@ def build_training_corpus(
         corpora.append(cmapss_source.load())
         included_sources.append("cmapss_fd001_health")
 
+    cmapss_sensor_path = Path(cmapss_sensor_path)
+    if include_cmapss_fd001_sensors:
+        if not cmapss_sensor_path.exists():
+            raise FileNotFoundError(
+                f"C-MAPSS FD001 sensor degradation CSV was not found at {cmapss_sensor_path}. "
+                "Run scripts/prepare_cmapss.py --signal sensor_degradation first."
+            )
+        cmapss_sensor_source = CMAPSSTurbofanSensorSource(
+            path=cmapss_sensor_path,
+            episode_length=episode_length,
+            max_value=max_value,
+        )
+        corpora.append(cmapss_sensor_source.load())
+        included_sources.append("cmapss_fd001_sensor_degradation")
+
     episodes, metadata = combine_degradation_corpora(*corpora)
     diagnostics = corpus_diagnostics_report(
         episodes,
@@ -139,6 +158,8 @@ def build_training_corpus(
         "nasa_path": str(nasa_path),
         "include_cmapss_fd001": bool(include_cmapss_fd001),
         "cmapss_path": str(cmapss_path),
+        "include_cmapss_fd001_sensors": bool(include_cmapss_fd001_sensors),
+        "cmapss_sensor_path": str(cmapss_sensor_path),
         "output_path": str(output_path),
         "metadata_path": str(metadata_path),
         "diagnostics_path": str(diagnostics_path),
@@ -163,6 +184,8 @@ def build_parser():
     parser.add_argument("--nasa-path", type=Path, default=DEFAULT_NASA_PATH)
     parser.add_argument("--include-cmapss-fd001", action="store_true")
     parser.add_argument("--cmapss-path", type=Path, default=DEFAULT_CMAPSS_PATH)
+    parser.add_argument("--include-cmapss-fd001-sensors", action="store_true")
+    parser.add_argument("--cmapss-sensor-path", type=Path, default=DEFAULT_CMAPSS_SENSOR_PATH)
     parser.add_argument("--output", type=Path, default=Path("degradation_episodes.npy"))
     parser.add_argument("--metadata-output", type=Path, default=Path("artifacts/corpus_metadata.json"))
     parser.add_argument("--diagnostics-output", type=Path, default=Path("artifacts/corpus_diagnostics.json"))
@@ -185,6 +208,8 @@ def main(argv=None):
         nasa_path=args.nasa_path,
         include_cmapss_fd001=args.include_cmapss_fd001,
         cmapss_path=args.cmapss_path,
+        include_cmapss_fd001_sensors=args.include_cmapss_fd001_sensors,
+        cmapss_sensor_path=args.cmapss_sensor_path,
         output_path=args.output,
         metadata_path=args.metadata_output,
         diagnostics_path=args.diagnostics_output,

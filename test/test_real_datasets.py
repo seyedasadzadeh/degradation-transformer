@@ -1,6 +1,7 @@
 import numpy as np
 
 from src.real_datasets import CMAPSSTurbofanHealthSource
+from src.real_datasets import CMAPSSTurbofanSensorSource
 from src.real_datasets import NASABatteryCapacitySource
 
 
@@ -82,3 +83,26 @@ def test_cmapss_turbofan_health_source_loads_processed_local_csv(tmp_path):
     assert {item["source_type"] for item in metadata} == {"real_simulated"}
     assert {item["parent_mechanism"] for item in metadata} == {"turbofan_degradation"}
     assert all("C-MAPSS" in item["citation"] for item in metadata)
+
+
+def test_cmapss_turbofan_sensor_source_loads_processed_local_csv(tmp_path):
+    path = tmp_path / "cmapss_fd001_sensor_degradation.csv"
+    path.write_text(
+        "engine_id,cycle,sensor_degradation\n"
+        "1,1,0.1\n"
+        "1,2,0.4\n"
+        "1,3,0.8\n"
+        "2,1,0.2\n"
+        "2,2,0.7\n",
+        encoding="utf-8",
+    )
+
+    source = CMAPSSTurbofanSensorSource(path=path, episode_length=4)
+    episodes, metadata = source.load()
+
+    assert episodes.shape == (2, 4)
+    assert np.allclose(episodes[:, 0], 0)
+    assert np.all(episodes[:, -1] > episodes[:, 1])
+    assert {item["observed_variable"] for item in metadata} == {"sensor_degradation"}
+    assert {item["mechanism"] for item in metadata} == {"cmapss_fd001_sensor_degradation"}
+    assert all(item["monotonic_expected"] is False for item in metadata)

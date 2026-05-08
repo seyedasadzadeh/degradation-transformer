@@ -98,6 +98,37 @@ def test_build_training_corpus_includes_cmapss_fd001_source(tmp_path):
     assert any(item["mechanism"] == "cmapss_fd001_health" for item in metadata)
 
 
+def test_build_training_corpus_includes_cmapss_fd001_sensor_source(tmp_path):
+    cmapss_sensor_path = tmp_path / "cmapss_sensors.csv"
+    cmapss_sensor_path.write_text(
+        "engine_id,cycle,sensor_degradation\n"
+        "1,1,0.0\n"
+        "1,2,0.3\n"
+        "1,3,1.0\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "episodes.npy"
+    metadata_output = tmp_path / "metadata.json"
+    diagnostics_output = tmp_path / "diagnostics.json"
+
+    episodes, metadata, diagnostics = build_training_corpus_module.build_training_corpus(
+        n_synthetic=8,
+        episode_length=30,
+        seed=7,
+        include_cmapss_fd001_sensors=True,
+        cmapss_sensor_path=cmapss_sensor_path,
+        output_path=output,
+        metadata_path=metadata_output,
+        diagnostics_path=diagnostics_output,
+    )
+
+    assert episodes.shape == (9, 30)
+    assert len(metadata) == 9
+    assert diagnostics["included_sources"] == ["synthetic", "cmapss_fd001_sensor_degradation"]
+    assert any(item["source_type"] == "real_simulated" for item in metadata)
+    assert any(item["mechanism"] == "cmapss_fd001_sensor_degradation" for item in metadata)
+
+
 def test_parse_source_weights():
     assert build_training_corpus_module._parse_source_weights(["battery=0.5", "wear=0.2"]) == {
         "battery": 0.5,
