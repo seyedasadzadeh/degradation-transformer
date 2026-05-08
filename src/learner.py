@@ -111,16 +111,17 @@ class Learner():
         for cb in self.cbs:
                 cb.after_fit(self)
 
-    def predict(self, x, num_periods=60, temperature=1.0, top_k=None, top_p=None, grad=False, return_tensor=False):
+    def predict(self, x, num_periods=60, temperature=0.0, top_k=None, top_p=None, grad=False, return_tensor=False):
         """
         Inference with the trained model (PyTorch version)
         
         Args:
             x: numpy array, 1D or 2D - initial context
             num_periods: int - number of future steps to predict
-            temperature: float - sampling temperature
+            temperature: float - decoding temperature. Defaults to 0.0 for
+                deterministic forecasting.
                 - 0.0: greedy (argmax)
-                - 1.0: sample from model distribution
+                - >0.0: sample from model distribution
                 - >1.0: more random (flatter distribution)
             top_k: int or None - if set, only sample from top k tokens
             top_p: float or None - if set, nucleus sampling (sample from smallest set with cumulative prob > p)

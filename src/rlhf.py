@@ -63,7 +63,11 @@ class RLHFLearner(Learner):
         
     def fit_rl_reinforce(self, num_epochs, future_window, temperature=1.0, baseline_momentum=0.9):
         """
-        Train using REINFORCE algorithm with dynamic window renormalization
+        Train using REINFORCE with dynamic window renormalization.
+
+        RL training intentionally defaults to temperature=1.0 for exploration.
+        Deployment/evaluation calls should use Learner.predict's deterministic
+        default or explicitly pass temperature=0.0.
         """
         self.model.train()
         moving_avg_reward = 0.0
@@ -170,7 +174,11 @@ class RLHFLearner(Learner):
 
     def fit_rl_ppo(self, num_epochs, future_window, temperature=1.0, baseline_momentum=0.9):
         """
-        Train using PPO algorithm
+        Train using PPO.
+
+        RL training intentionally defaults to temperature=1.0 for exploration.
+        Deployment/evaluation calls should use Learner.predict's deterministic
+        default or explicitly pass temperature=0.0.
         """
         self.model.train()
         moving_avg_reward = 0.0

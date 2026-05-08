@@ -119,6 +119,25 @@ def test_predict_returns_only_generated_steps_for_longer_context():
     assert y_predict.shape == (1, 3)
 
 
+def test_predict_default_temperature_is_deterministic():
+    torch.manual_seed(0)
+    model = DegradationTransformer(
+        vocab_size=32,
+        context_window=4,
+        embedding_dim=16,
+        num_heads=4,
+        num_blocks=1,
+        metadata_dim=6,
+    )
+    learner = Learner(model, optim=None, loss_func=None, train_loader=None, test_loader=None, cbs=[], device="cpu")
+    x = np.array([[0, 1, 2, 3]], dtype=np.float32)
+
+    y_predict_a, _ = learner.predict(x, num_periods=4)
+    y_predict_b, _ = learner.predict(x, num_periods=4)
+
+    assert np.array_equal(y_predict_a, y_predict_b)
+
+
 def test_variable_context_dataset_left_pads_and_masks():
     data = np.arange(20, dtype=np.float32)[None, :]
     dataset = VariableContextTimeSeriesDataset(

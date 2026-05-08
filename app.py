@@ -115,7 +115,7 @@ def parse_text_input(text_input):
 def predict_and_plot(input_data, num_periods=60):
     input_data = validate_input_data(input_data)
     model_learner = get_learner()
-    y_predict, _ = model_learner.predict(input_data, num_periods=int(num_periods))
+    y_predict, _ = model_learner.predict(input_data, num_periods=int(num_periods), temperature=0.0)
 
     fig, ax = plt.subplots(figsize=(12, 6))
     input_len = input_data.shape[-1]

@@ -97,10 +97,40 @@ failure. The old
 `generate_diverse_degradation_episodes` wrapper remains available for existing
 notebooks and scripts.
 
+### Real Data Ingestion
+
+Real degradation sources can be loaded into the same `(episodes, metadata)`
+format and combined with synthetic corpora:
+
+```python
+from src.ingestion import CSVDatasetSource, combine_degradation_corpora
+
+real_source = CSVDatasetSource(
+    name="nasa_battery_local",
+    domain="battery",
+    observed_variable="capacity",
+    mechanism_family="capacity_fade_lab_cycles",
+    parent_mechanism="battery_capacity_fade",
+    path="data/nasa_battery_capacity.csv",
+    value_column="capacity",
+    id_column="cell_id",
+    time_column="cycle",
+    direction="decreasing",
+    episode_length=100,
+)
+
+real_episodes, real_metadata = real_source.load()
+episodes, metadata = combine_degradation_corpora(
+    (episodes, metadata),
+    (real_episodes, real_metadata),
+)
+```
+
 ## 📂 Project Structure
 
 -   `app.py`: The Gradio web application.
 -   `src/generation.py`: Synthetic degradation processes and diversity diagnostics.
+-   `src/ingestion.py`: Real/local degradation dataset ingestion and corpus mixing.
 -   `src/preprocessing.py`: Normalization, digitization, metadata features, and datasets.
 -   `src/model.py`: Transformer architecture.
 -   `src/learner.py`: Supervised training and autoregressive prediction loop.
