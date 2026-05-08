@@ -150,6 +150,15 @@ python scripts/prepare_nasa_battery.py \
 The script accepts `.csv` files directly. It can also read NASA PCoE `.mat`
 battery files when `scipy` is installed.
 
+C-MAPSS FD001 turbofan data can be standardized with:
+
+```bash
+python scripts/prepare_cmapss.py \
+  --train-path data/raw/cmapss/train_FD001.txt \
+  --output data/processed/cmapss_fd001_health.csv \
+  --dataset-id FD001
+```
+
 Build the training corpus and optional diagnostics with:
 
 ```bash
@@ -158,6 +167,8 @@ python scripts/build_training_corpus.py \
   --episode-length 100 \
   --include-nasa-battery \
   --nasa-path data/processed/nasa_battery_capacity.csv \
+  --include-cmapss-fd001 \
+  --cmapss-path data/processed/cmapss_fd001_health.csv \
   --output degradation_episodes.npy \
   --metadata-output artifacts/corpus_metadata.json \
   --diagnostics-output artifacts/corpus_diagnostics.json
@@ -179,6 +190,7 @@ python scripts/build_training_corpus.py \
 -   `rlhf_training.ipynb`: Notebook for RLHF fine-tuning.
 -   `RLHF_PLAN.md`: Detailed plan and theoretical background for the RLHF approach.
 -   `scripts/prepare_nasa_battery.py`: Prepare local NASA battery capacity data.
+-   `scripts/prepare_cmapss.py`: Prepare local C-MAPSS turbofan health-index data.
 -   `scripts/build_training_corpus.py`: Build synthetic/real training corpora and diagnostics.
 
 ## 🤝 Contributing

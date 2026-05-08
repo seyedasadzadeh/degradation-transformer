@@ -1,5 +1,6 @@
 import numpy as np
 
+from src.real_datasets import CMAPSSTurbofanHealthSource
 from src.real_datasets import NASABatteryCapacitySource
 
 
@@ -57,3 +58,27 @@ def test_nasa_battery_capacity_source_supports_custom_processed_schema(tmp_path)
         "time_column": "cycle_index",
         "value_column": "cap_ah",
     }
+
+
+def test_cmapss_turbofan_health_source_loads_processed_local_csv(tmp_path):
+    path = tmp_path / "cmapss_fd001_health.csv"
+    path.write_text(
+        "engine_id,cycle,health_index\n"
+        "1,1,1.0\n"
+        "1,2,0.5\n"
+        "1,3,0.0\n"
+        "2,1,1.0\n"
+        "2,2,0.0\n",
+        encoding="utf-8",
+    )
+
+    source = CMAPSSTurbofanHealthSource(path=path, episode_length=4)
+    episodes, metadata = source.load()
+
+    assert episodes.shape == (2, 4)
+    assert np.allclose(episodes[:, 0], 0)
+    assert np.all(episodes[:, -1] > episodes[:, 1])
+    assert {item["domain"] for item in metadata} == {"turbofan"}
+    assert {item["source_type"] for item in metadata} == {"real_simulated"}
+    assert {item["parent_mechanism"] for item in metadata} == {"turbofan_degradation"}
+    assert all("C-MAPSS" in item["citation"] for item in metadata)

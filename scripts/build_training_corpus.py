@@ -20,10 +20,12 @@ from src.generation import CorpusConfig
 from src.generation import corpus_diagnostics_report
 from src.generation import generate_degradation_corpus_from_config
 from src.ingestion import combine_degradation_corpora
+from src.real_datasets import CMAPSSTurbofanHealthSource
 from src.real_datasets import NASABatteryCapacitySource
 
 
 DEFAULT_NASA_PATH = Path("data/processed/nasa_battery_capacity.csv")
+DEFAULT_CMAPSS_PATH = Path("data/processed/cmapss_fd001_health.csv")
 
 
 def _parse_source_weights(items):
@@ -67,6 +69,8 @@ def build_training_corpus(
     source_weights=None,
     include_nasa_battery=False,
     nasa_path=DEFAULT_NASA_PATH,
+    include_cmapss_fd001=False,
+    cmapss_path=DEFAULT_CMAPSS_PATH,
     output_path=Path("degradation_episodes.npy"),
     metadata_path=Path("artifacts/corpus_metadata.json"),
     diagnostics_path=Path("artifacts/corpus_diagnostics.json"),
@@ -101,6 +105,21 @@ def build_training_corpus(
         corpora.append(nasa_source.load())
         included_sources.append("nasa_battery_capacity")
 
+    cmapss_path = Path(cmapss_path)
+    if include_cmapss_fd001:
+        if not cmapss_path.exists():
+            raise FileNotFoundError(
+                f"C-MAPSS FD001 processed CSV was not found at {cmapss_path}. "
+                "Run scripts/prepare_cmapss.py first."
+            )
+        cmapss_source = CMAPSSTurbofanHealthSource(
+            path=cmapss_path,
+            episode_length=episode_length,
+            max_value=max_value,
+        )
+        corpora.append(cmapss_source.load())
+        included_sources.append("cmapss_fd001_health")
+
     episodes, metadata = combine_degradation_corpora(*corpora)
     diagnostics = corpus_diagnostics_report(
         episodes,
@@ -118,6 +137,8 @@ def build_training_corpus(
         "source_weights": source_weights,
         "include_nasa_battery": bool(include_nasa_battery),
         "nasa_path": str(nasa_path),
+        "include_cmapss_fd001": bool(include_cmapss_fd001),
+        "cmapss_path": str(cmapss_path),
         "output_path": str(output_path),
         "metadata_path": str(metadata_path),
         "diagnostics_path": str(diagnostics_path),
@@ -140,6 +161,8 @@ def build_parser():
     parser.add_argument("--source-weight", action="append", default=None, help="Synthetic source weight as key=value.")
     parser.add_argument("--include-nasa-battery", action="store_true")
     parser.add_argument("--nasa-path", type=Path, default=DEFAULT_NASA_PATH)
+    parser.add_argument("--include-cmapss-fd001", action="store_true")
+    parser.add_argument("--cmapss-path", type=Path, default=DEFAULT_CMAPSS_PATH)
     parser.add_argument("--output", type=Path, default=Path("degradation_episodes.npy"))
     parser.add_argument("--metadata-output", type=Path, default=Path("artifacts/corpus_metadata.json"))
     parser.add_argument("--diagnostics-output", type=Path, default=Path("artifacts/corpus_diagnostics.json"))
@@ -160,6 +183,8 @@ def main(argv=None):
         source_weights=_parse_source_weights(args.source_weight),
         include_nasa_battery=args.include_nasa_battery,
         nasa_path=args.nasa_path,
+        include_cmapss_fd001=args.include_cmapss_fd001,
+        cmapss_path=args.cmapss_path,
         output_path=args.output,
         metadata_path=args.metadata_output,
         diagnostics_path=args.diagnostics_output,
