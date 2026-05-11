@@ -6,6 +6,7 @@ mlruns/
 data/raw/
 
 # Generated corpus build reports
+degradation_episodes.npy
 artifacts/corpus_metadata.json
 artifacts/corpus_diagnostics.json
 artifacts/checks/

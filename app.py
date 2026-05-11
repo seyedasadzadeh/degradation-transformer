@@ -12,6 +12,7 @@ from src.model import DegradationTransformer
 
 MODEL_FILENAME = "degradation_transformer_model.safetensors"
 CONFIG_FILENAME = "degradation_transformer_model_config.json"
+SAMPLE_DEGRADATIONS_FILENAME = "sample_degradations.npy"
 HF_REPO_ID = "smasadzadeh/degradation-transformer"
 WANDB_ARTIFACT = "smasadzadeh-freelancer/degradation-transformer/degradation-transformer-model:Production"
 
@@ -164,6 +165,11 @@ def build_demo():
             with gr.Row():
                 output_plot = gr.Plot(label="Degradation Prediction Plot")
                 predict_button.click(fn=process_input, inputs=[data_file, data_text, num_periods], outputs=output_plot)
+            if os.path.exists(SAMPLE_DEGRADATIONS_FILENAME):
+                gr.Examples(
+                    examples=[[SAMPLE_DEGRADATIONS_FILENAME, "", 60]],
+                    inputs=[data_file, data_text, num_periods],
+                )
     return demo
 
 
