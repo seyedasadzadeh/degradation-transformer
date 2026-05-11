@@ -4,9 +4,9 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY src/ src/
+COPY scripts/ scripts/
 COPY test/ test/
 COPY pytest.ini .
 COPY degradation_transformer_model.safetensors .
 COPY degradation_transformer_model_config.json .
 CMD ["pytest", "test"]
-
